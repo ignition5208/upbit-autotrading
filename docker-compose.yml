@@ -1,0 +1,67 @@
+version: "3.9"
+
+services:
+  mariadb:
+    image: mariadb:11
+    container_name: upbit-mariadb
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-upbit}
+      MYSQL_USER: ${MYSQL_USER:-upbit}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-upbitpass}
+      TZ: Asia/Seoul
+    volumes:
+      - mariadb_data:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  dashboard-api:
+    build: ./dashboard-api
+    container_name: upbit-dashboard-api
+    environment:
+      TZ: Asia/Seoul
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE:-upbit}
+      DB_USER: ${MYSQL_USER:-upbit}
+      DB_PASS: ${MYSQL_PASSWORD:-upbitpass}
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TRADER_IMAGE: upbit-trader:latest
+      TRADER_NETWORK: upbitnet
+      KEY_ENC_SECRET: ${KEY_ENC_SECRET:-dev-only-secret-change-me}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      trader-image:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  dashboard-web:
+    build: ./dashboard-web
+    container_name: upbit-dashboard-web
+    depends_on:
+      - dashboard-api
+    ports:
+      - "8080:80"
+
+  trader-image:
+    build: ./trader
+    image: upbit-trader:latest
+    container_name: upbit-trader-image
+    command: ["sleep", "infinity"]
+
+networks:
+  default:
+    name: upbitnet
+
+volumes:
+  mariadb_data:
