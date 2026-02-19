@@ -28,12 +28,16 @@ services:
         condition: service_healthy
     volumes:
       - ./:/workspace
+    ports:
+      - "8000:8000"
 
   dashboard-web:
     build: ./dashboard-web
     depends_on:
       - dashboard-api
     # NOTE: 사용자의 web은 이미 존재한다고 했으므로 여기서는 스켈레톤만 유지
+    ports:
+      - "8080:80"
 
   trainer:
     build: ./trainer

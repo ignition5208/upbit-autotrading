@@ -18,6 +18,7 @@ export default function ArmLiveModal({
   if (!show || traderId === null) return null
 
   async function submit() {
+    if (traderId === null) return   // ✅ 추가
     setBusy(true)
     setErr(null)
     try {
@@ -29,6 +30,7 @@ export default function ArmLiveModal({
       setBusy(false)
     }
   }
+
 
   return (
     <div className="modal d-block" tabIndex={-1} style={{ background: 'rgba(0,0,0,.55)' }}>
