@@ -1,0 +1,9 @@
+weights:
+  BREAKOUT_ROTATION: 1.10
+  TREND: 1.05
+  RANGE: 1.00
+  CHOP: 0.00
+  PANIC: 0.00
+block_new_entry:
+  - CHOP
+  - PANIC

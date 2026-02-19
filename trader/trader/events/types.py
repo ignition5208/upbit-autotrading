@@ -1,0 +1,1 @@
+LEVELS = ("INFO", "WARN", "CRITICAL")

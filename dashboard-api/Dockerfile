@@ -2,9 +2,17 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir     fastapi==0.110.0     uvicorn[standard]==0.27.1     sqlalchemy==2.0.25     pymysql==1.1.0     cryptography==42.0.5     docker==7.1.0     pydantic==2.6.1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+  && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml /app/pyproject.toml
+RUN pip install -U pip && pip install -e .
 
 COPY app /app/app
 
 EXPOSE 8000
-CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8000"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,67 +1,61 @@
-version: "3.9"
-
 services:
   mariadb:
     image: mariadb:11
-    container_name: upbit-mariadb
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-upbit}
-      MYSQL_USER: ${MYSQL_USER:-upbit}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-upbitpass}
-      TZ: Asia/Seoul
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     volumes:
       - mariadb_data:/var/lib/mysql
-      - ./db/init:/docker-entrypoint-initdb.d:ro
-    ports:
-      - "3306:3306"
+      - ./infra/mariadb/init:/docker-entrypoint-initdb.d:ro
+      - ./infra/mariadb/conf/my.cnf:/etc/mysql/conf.d/my.cnf:ro
     healthcheck:
-      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      test: ["CMD","mariadb-admin","ping","-h","127.0.0.1","-uroot","-p${MYSQL_ROOT_PASSWORD}"]
       interval: 5s
       timeout: 3s
       retries: 30
 
   dashboard-api:
     build: ./dashboard-api
-    container_name: upbit-dashboard-api
     environment:
-      TZ: Asia/Seoul
-      DB_HOST: mariadb
-      DB_PORT: 3306
-      DB_NAME: ${MYSQL_DATABASE:-upbit}
-      DB_USER: ${MYSQL_USER:-upbit}
-      DB_PASS: ${MYSQL_PASSWORD:-upbitpass}
-      DOCKER_HOST: unix:///var/run/docker.sock
-      TRADER_IMAGE: upbit-trader:latest
-      TRADER_NETWORK: upbitnet
-      KEY_ENC_SECRET: ${KEY_ENC_SECRET:-dev-only-secret-change-me}
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      DATABASE_URL: ${DATABASE_URL}
+      API_KEY: ${API_KEY}
+      TRADER_COMPOSE_PROJECT_DIR: /workspace
+      TRADER_SERVICE_TEMPLATE: trader-template
     depends_on:
       mariadb:
         condition: service_healthy
-      trader-image:
-        condition: service_started
-    ports:
-      - "8000:8000"
+    volumes:
+      - ./:/workspace
 
   dashboard-web:
     build: ./dashboard-web
-    container_name: upbit-dashboard-web
     depends_on:
       - dashboard-api
-    ports:
-      - "8080:80"
+    # NOTE: 사용자의 web은 이미 존재한다고 했으므로 여기서는 스켈레톤만 유지
 
-  trader-image:
-    build: ./trader
-    image: upbit-trader:latest
-    container_name: upbit-trader-image
-    command: ["sleep", "infinity"]
+  trainer:
+    build: ./trainer
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      mariadb:
+        condition: service_healthy
 
-networks:
-  default:
-    name: upbitnet
+  # trader는 초기 0개. UI에서 동적 생성.
+  # trader-template:
+  #   build: ./trader
+  #   environment:
+  #     DATABASE_URL: ${DATABASE_URL}
+  #     UPBIT_ACCESS_KEY: ${UPBIT_ACCESS_KEY}
+  #     UPBIT_SECRET_KEY: ${UPBIT_SECRET_KEY}
+  #     TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+  #     TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID}
+  #   depends_on:
+  #     mariadb:
+  #       condition: service_healthy
 
 volumes:
   mariadb_data:
+    name: upbit_mariadb_data

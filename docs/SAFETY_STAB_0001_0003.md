@@ -1,0 +1,1 @@
+# Safety design notes skeleton.

@@ -1,0 +1,1 @@
+# Strategy authoring guide skeleton.

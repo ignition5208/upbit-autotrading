@@ -1,11 +1,11 @@
 FROM python:3.11-slim
 WORKDIR /app
-
-# runtime deps
-RUN pip install --no-cache-dir sqlalchemy pymysql requests
-
-COPY . /app
-
+ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 
-CMD ["python","-u","trader.py"]
+COPY pyproject.toml /app/pyproject.toml
+RUN pip install -U pip && pip install -e .
+
+COPY trader /app/trader
+
+CMD ["python", "-m", "trader.main"]

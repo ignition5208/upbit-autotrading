@@ -1,17 +1,26 @@
-import os
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field
+from typing import List
 
-class Settings:
-    DB_HOST = os.getenv("DB_HOST","mariadb")
-    DB_PORT = int(os.getenv("DB_PORT","3306"))
-    DB_NAME = os.getenv("DB_NAME","upbit")
-    DB_USER = os.getenv("DB_USER","upbit")
-    DB_PASS = os.getenv("DB_PASS","upbitpass")
-    TZ = os.getenv("TZ","Asia/Seoul")
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    DOCKER_HOST = os.getenv("DOCKER_HOST","unix:///var/run/docker.sock")
-    TRADER_IMAGE = os.getenv("TRADER_IMAGE","upbit-trader:latest")
-    TRADER_NETWORK = os.getenv("TRADER_NETWORK","upbitnet")
+    version: str = "1.8-0001"
 
-    KEY_ENC_SECRET = os.getenv("KEY_ENC_SECRET","dev-only-secret-change-me")
+    # security
+    api_key: str | None = Field(default=None, alias="API_KEY")
 
-SETTINGS = Settings()
+    # DB
+    database_url: str = Field(
+        default="mysql+pymysql://root:password@localhost:3306/trading",
+        alias="DATABASE_URL",
+    )
+
+    # CORS
+    cors_allow_origins: List[str] = Field(default_factory=lambda: ["*"])
+
+    # orchestrator
+    trader_compose_project_dir: str | None = Field(default=None, alias="TRADER_COMPOSE_PROJECT_DIR")
+    trader_service_template: str = Field(default="trader-template", alias="TRADER_SERVICE_TEMPLATE")
+
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
