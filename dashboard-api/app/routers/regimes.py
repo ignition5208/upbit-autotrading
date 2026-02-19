@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from app.deps import require_api_key
 
-router = APIRouter(dependencies=[Depends(require_api_key)])
+router = APIRouter()
 
 @router.get("/current")
 def current_regime():

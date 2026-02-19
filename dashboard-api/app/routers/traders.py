@@ -4,7 +4,7 @@ from pydantic import BaseModel, Field
 from app.deps import require_api_key
 from app.services.trader_orchestrator import TraderOrchestrator
 
-router = APIRouter(dependencies=[Depends(require_api_key)])
+router = APIRouter()
 
 class TraderCreateRequest(BaseModel):
     trader_name: str = Field(..., description="Unique container/service name")
