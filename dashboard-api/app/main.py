@@ -3,8 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.settings import Settings
 from app.logging_ import configure_logging
-from app.routers import health, traders, metrics, models, regimes, bandit, events, configs
-from app.routers.api_aliases import router as api_aliases_router
+
+from app.routers import (
+    health,
+    traders,
+    metrics,
+    models,
+    regimes,
+    bandit,
+    events,
+    configs,
+    api_aliases,  # ✅ 추가
+)
 
 settings = Settings()
 configure_logging(settings.log_level)
@@ -19,10 +29,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# health (no prefix)
+# ✅ 내부(기존) 라우트: /traders, /metrics, /models, /regimes ...
 app.include_router(health.router)
-
-# native routes
 app.include_router(traders.router, prefix="/traders", tags=["traders"])
 app.include_router(metrics.router, prefix="/metrics", tags=["metrics"])
 app.include_router(models.router, prefix="/models", tags=["models"])
@@ -31,8 +39,8 @@ app.include_router(bandit.router, prefix="/bandit", tags=["bandit"])
 app.include_router(events.router, prefix="/events", tags=["events"])
 app.include_router(configs.router, prefix="/configs", tags=["configs"])
 
-# dashboard-web compatibility aliases (/api/*)
-app.include_router(api_aliases_router)
+# ✅ 프론트 호환 /api/* 는 api_aliases에서 “정석 형태로” 제공
+app.include_router(api_aliases.router, tags=["api"])
 
 @app.get("/")
 def root():
