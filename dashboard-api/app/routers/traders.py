@@ -15,8 +15,8 @@ class TraderCreateRequest(BaseModel):
 
 @router.get("")
 def list_traders():
-    # TODO: DB 조회(traders 테이블)로 교체
-    return {"items": []}
+    items = []
+    return {"items": items, "data": items}
 
 @router.post("")
 def create_trader(req: TraderCreateRequest):

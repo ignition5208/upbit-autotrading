@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends
-from app.deps import require_api_key
+from fastapi import APIRouter
 
 router = APIRouter()
 
-@router.get("/current")
-def current_regime():
-    # TODO: market_regimes 최신값 조회
-    return {
-        "label": "RANGE",
-        "score": 50,
-        "updated_at": None,
-        "metrics": {},
-    }
+@router.get("")
+def list_regimes():
+    items = [
+        {"id": "0", "value": "0", "label": "Neutral"},
+        {"id": "1", "value": "1", "label": "Bull"},
+        {"id": "2", "value": "2", "label": "Bear"},
+        {"id": "3", "value": "3", "label": "Sideways"},
+    ]
+    return {"items": items, "data": items}
+    

@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends
-from app.deps import require_api_key
+from fastapi import APIRouter
 
 router = APIRouter()
 
-@router.get("/versions")
-def model_versions():
-    # TODO: model_versions/model_candidates 조회
-    return {"items": []}
+@router.get("")
+def list_models():
+    items = [
+        {"id": "baseline", "value": "baseline", "label": "Baseline"},
+        {"id": "v1", "value": "v1", "label": "Model v1"},
+    ]
+    return {"items": items, "data": items}
