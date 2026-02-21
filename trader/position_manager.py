@@ -2,7 +2,7 @@
 Position Manager
 지침: 트레일링, 스케일아웃, 자동 SL/TP, regime 변화시 자동 축소/청산
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import httpx
 
@@ -75,11 +75,8 @@ class PositionManager:
                     pos['scale_out_2'] = True
                     pos['size'] = size * 1/3  # 추가 1/3 청산
             
-            # 레짐 변화 시 축소/청산
-            if regime == "PANIC":
-                # PANIC 레짐: 포지션 축소
-                pos['size'] = size * 0.5  # 50% 축소
-            elif regime == "CHOP":
+            # 레짐 변화 시 청산
+            if regime == "CHOP":
                 # CHOP 레짐: 손실 포지션만 청산
                 if unreal_pnl_pct < -1.0:
                     pos['status'] = 'CLOSED'
@@ -118,9 +115,5 @@ class PositionManager:
         stop_price = position.get('stop_price')
         if stop_price and current_price <= stop_price:
             return True, f"손절 도달 ({current_price:.0f} <= {stop_price:.0f})"
-        
-        # 레짐 변화 체크
-        if regime == "PANIC":
-            return True, "PANIC 레짐 청산"
         
         return False, ""

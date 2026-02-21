@@ -175,6 +175,44 @@ function drawChart(canvas, traders) {
   }
 }
 
+function buildCumulativePnlPoints(trades) {
+  if (!trades || trades.length === 0) return [];
+  const sorted = [...trades]
+    .filter(t => t && t.side && t.price != null && t.qty != null && t.ts)
+    .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime());
+
+  const positions = new Map(); // market -> {qty, avg}
+  let realized = 0;
+  const points = [];
+
+  for (const t of sorted) {
+    const market = t.market;
+    const side = String(t.side).toUpperCase();
+    const price = Number(t.price) || 0;
+    const qty = Number(t.qty) || 0;
+    const ts = new Date(t.ts).getTime();
+    if (!market || !side || price <= 0 || qty <= 0 || Number.isNaN(ts)) continue;
+
+    const cur = positions.get(market) || { qty: 0, avg: 0 };
+    if (side === 'BUY') {
+      const nextQty = cur.qty + qty;
+      const nextAvg = nextQty > 0 ? ((cur.avg * cur.qty) + (price * qty)) / nextQty : 0;
+      positions.set(market, { qty: nextQty, avg: nextAvg });
+    } else if (side === 'SELL') {
+      const closeQty = Math.min(qty, cur.qty);
+      realized += (price - cur.avg) * closeQty;
+      const remain = Math.max(0, cur.qty - closeQty);
+      positions.set(market, { qty: remain, avg: remain > 0 ? cur.avg : 0 });
+    }
+
+    points.push({ ts, pnl: realized });
+  }
+
+  if (points.length === 0) return [];
+  const base = Math.abs(points[0].pnl) > 0 ? Math.abs(points[0].pnl) : 1_000_000;
+  return points.map(p => ({ ts: p.ts, pnl: p.pnl / base }));
+}
+
 // ===== DASHBOARD =====
 async function renderDashboard() {
   const root = qs('#dashboard');
@@ -273,11 +311,16 @@ async function loadDashboard() {
   const canvas = qs('#profit-chart');
   const legendEl = qs('#chart-legend');
   if (canvas) {
-    const traders = (trRes.data?.items || []).map(t => ({ name: t.name, points: [] }));
+    const traderRows = trRes.data?.items || [];
+    const traders = await Promise.all(traderRows.map(async t => {
+      const tradesRes = await API.get(`/trades?trader_name=${encodeURIComponent(t.name)}&limit=200`);
+      const points = tradesRes.ok ? buildCumulativePnlPoints(tradesRes.data?.items || []) : [];
+      return { name: t.name, points };
+    }));
     drawChart(canvas, traders);
     if (legendEl) {
       legendEl.innerHTML = '';
-      (trRes.data?.items || []).forEach((t, i) => {
+      traderRows.forEach((t, i) => {
         const item = el('div', 'legend-item');
         const dot  = el('span', 'legend-dot');
         dot.style.background = CHART_COLORS[i % CHART_COLORS.length];

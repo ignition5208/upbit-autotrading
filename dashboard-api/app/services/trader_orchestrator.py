@@ -12,14 +12,20 @@ _settings = Settings()
 
 
 def _docker(*args: str) -> tuple[int, str, str]:
-    p = subprocess.Popen(
-        ["docker", *args],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    out, err = p.communicate()
-    return p.returncode, out.strip(), err.strip()
+    try:
+        p = subprocess.Popen(
+            ["docker", *args],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        out, err = p.communicate()
+        return p.returncode, out.strip(), err.strip()
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            "docker CLI not found in dashboard-api container. "
+            "Rebuild dashboard-api image with docker client installed."
+        ) from exc
 
 
 def _ensure_network(network: str) -> None:

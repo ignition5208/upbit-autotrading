@@ -100,6 +100,35 @@ def list_signals(
     }
 
 
+@router.get("/trades")
+def list_trades(
+    trader_name: str | None = None,
+    limit: int = 200,
+    db: Session = Depends(get_db),
+):
+    """
+    체결 이력 조회.
+    현재는 FILLED 주문을 트레이드 뷰로 제공한다.
+    """
+    query = db.query(Order).filter_by(status="FILLED")
+    if trader_name:
+        query = query.filter_by(trader_name=trader_name)
+    rows = query.order_by(Order.created_at.desc()).limit(limit).all()
+    return {
+        "items": [{
+            "id": r.id,
+            "order_id": r.order_id,
+            "trader_name": r.trader_name,
+            "market": r.symbol,
+            "side": r.side,
+            "qty": r.filled_qty if r.filled_qty and r.filled_qty > 0 else r.size,
+            "price": r.avg_price if r.avg_price is not None else r.price,
+            "status": r.status,
+            "ts": r.created_at.isoformat(),
+        } for r in rows]
+    }
+
+
 @router.get("/trades/positions")
 def list_positions(
     trader_name: str | None = None,

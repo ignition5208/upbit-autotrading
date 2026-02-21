@@ -76,7 +76,32 @@ def run_training_cycle():
         if eval_response.status_code != 200:
             print(f"[trainer] Evaluation failed: {eval_response.status_code}")
             return
-        
+        eval_data = eval_response.json()
+
+        # 3-1. Bandit 보상 업데이트 (OPT-0004)
+        regime_label = "RANGE"
+        try:
+            regime_resp = httpx.get(f"{BASE}/api/regimes/snapshots?limit=1", timeout=10.0)
+            if regime_resp.status_code == 200:
+                regime_items = regime_resp.json().get("items", [])
+                if regime_items:
+                    regime_label = regime_items[0].get("regime_label", "RANGE")
+        except Exception as e:
+            print(f"[trainer] Failed to load current regime for bandit update: {e}")
+
+        reward_positive = eval_data.get("status") == "PASS"
+        bandit_response = httpx.post(
+            f"{BASE}/api/trainer/bandit-update",
+            json={
+                "regime": regime_label,
+                "strategy_id": "default",
+                "reward_positive": reward_positive,
+            },
+            timeout=60.0,
+        )
+        if bandit_response.status_code != 200:
+            print(f"[trainer] Bandit update failed: {bandit_response.status_code}")
+
         # 4. 자동 튜닝 (OPT-0003)
         print("[trainer] Running auto-tuning...")
         tune_response = httpx.post(

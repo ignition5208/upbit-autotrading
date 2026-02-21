@@ -142,7 +142,10 @@ def run_trader(trader_name: str, req: TraderRunRequest, db: Session = Depends(ge
             raise HTTPException(400, f"PAPER 보호기간 {remaining}초 남음. LIVE 전환 불가.")
         if t.armed_at is None:
             raise HTTPException(400, "ARM 먼저 필요합니다. POST /api/traders/{name}/arm")
-    ensure_trader_container(db, t, req.run_mode)
+    try:
+        ensure_trader_container(db, t, req.run_mode)
+    except RuntimeError as exc:
+        raise HTTPException(503, str(exc))
     return {"ok": True}
 
 

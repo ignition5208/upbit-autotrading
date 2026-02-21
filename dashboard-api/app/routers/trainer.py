@@ -9,6 +9,7 @@ from app.db import get_db
 from app.services.data_pipeline import run_scan, calculate_labels
 from app.services.model_evaluation import calculate_evaluation_metrics, evaluate_model
 from app.services.auto_tuning import optimize_hyperparameters
+from app.services.bandit import update_bandit
 from app.models import ScanRun, FeatureSnapshot
 
 router = APIRouter()
@@ -32,6 +33,12 @@ class EvaluateRequest(BaseModel):
 class TuneRequest(BaseModel):
     strategy_id: str = Field(...)
     param_space: dict = Field(default_factory=dict)
+
+
+class BanditUpdateRequest(BaseModel):
+    regime: str = Field(...)
+    strategy_id: str = Field(...)
+    reward_positive: bool = Field(...)
 
 
 @router.post("/trainer/scan")
@@ -154,3 +161,15 @@ def tune(req: TuneRequest, db: Session = Depends(get_db)):
         "ok": True,
         "best_params": best_params,
     }
+
+
+@router.post("/trainer/bandit-update")
+def bandit_update(req: BanditUpdateRequest, db: Session = Depends(get_db)):
+    """Bandit 보상 업데이트 (OPT-0004)"""
+    update_bandit(
+        db=db,
+        regime=req.regime,
+        strategy_id=req.strategy_id,
+        reward_positive=req.reward_positive,
+    )
+    return {"ok": True}

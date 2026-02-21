@@ -2,7 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from app.db import get_db
-from app.services.credentials import create_credential, list_credentials, delete_credential
+from app.services.credentials import (
+    create_credential,
+    list_credentials,
+    delete_credential,
+    decrypt_credential,
+)
 
 router = APIRouter()
 
@@ -27,3 +32,11 @@ def post_credentials(req: CredentialCreate, db: Session = Depends(get_db)):
 def del_credential(name: str, db: Session = Depends(get_db)):
     ok = delete_credential(db, name)
     return {"deleted": ok}
+
+
+@router.get("/credentials/{name}/decrypt")
+def get_credential_decrypt(name: str, db: Session = Depends(get_db)):
+    cred = decrypt_credential(db, name)
+    if not cred:
+        raise HTTPException(status_code=404, detail="credential not found")
+    return cred

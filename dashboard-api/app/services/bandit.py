@@ -6,6 +6,8 @@ from app.models import BanditState
 
 def sample_bandit_weight(db: Session, regime: str, strategy_id: str) -> float:
     """Thompson Sampling → 0.5 ~ 1.5 스케일 가중치 반환."""
+    if regime in ("CHOP", "PANIC"):
+        return 0.0
     row = db.query(BanditState).filter_by(regime=regime, strategy_id=strategy_id).first()
     if not row:
         return 1.0

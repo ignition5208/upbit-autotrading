@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.models import Credential
-from app.security.crypto import encrypt_str
+from app.security.crypto import encrypt_str, decrypt_str
 
 def list_credentials(db: Session):
     rows = db.execute(select(Credential).order_by(Credential.created_at.desc())).scalars().all()
@@ -27,3 +27,14 @@ def delete_credential(db: Session, name: str) -> bool:
     db.delete(obj)
     db.commit()
     return True
+
+
+def decrypt_credential(db: Session, name: str) -> dict | None:
+    obj = db.get(Credential, name)
+    if not obj:
+        return None
+    return {
+        "name": obj.name,
+        "access_key": decrypt_str(obj.access_key_enc),
+        "secret_key": decrypt_str(obj.secret_key_enc),
+    }
