@@ -3,6 +3,7 @@ Trader 서비스 메인
 지침 기반 전체 워크플로우 실행
 """
 import os
+import random
 import time
 from datetime import datetime
 import httpx
@@ -11,6 +12,7 @@ NAME = os.getenv("TRADER_NAME", "trader")
 BASE = os.getenv("DASHBOARD_API_BASE", "http://dashboard-api:8000")
 INTERVAL = int(os.getenv("TRADING_INTERVAL_SEC", "300"))  # 기본 5분
 TRADING_ENABLED = os.getenv("TRADING_ENABLED", "true").lower() == "true"
+STARTUP_JITTER_SEC = int(os.getenv("TRADER_STARTUP_JITTER_SEC", "30"))
 
 print(f"[trader] Starting {NAME}")
 print(f"[trader] Dashboard API: {BASE}, Interval: {INTERVAL}s, Trading: {TRADING_ENABLED}")
@@ -59,6 +61,10 @@ def main():
     """메인 루프"""
     trading_engine = None
     post_event("INFO", "lifecycle", f"trader process started interval={INTERVAL}s enabled={TRADING_ENABLED}")
+    if STARTUP_JITTER_SEC > 0:
+        jitter = random.randint(0, STARTUP_JITTER_SEC)
+        print(f"[trader] Startup jitter sleep: {jitter}s")
+        time.sleep(jitter)
     
     while True:
         try:

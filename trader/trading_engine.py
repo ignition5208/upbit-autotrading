@@ -101,6 +101,7 @@ DEFAULT_STRATEGY_PARAMS: Dict[str, Dict[str, float]] = {
         "add_min_base_score": 70.0,
     },
 }
+OHLCV_CALL_INTERVAL_SEC = float(os.getenv("UPBIT_OHLCV_CALL_INTERVAL_SEC", "0.14"))
 
 
 class TradingEngine:
@@ -352,6 +353,8 @@ class TradingEngine:
         for candidate in candidates:
             symbol = candidate['symbol']
             try:
+                if OHLCV_CALL_INTERVAL_SEC > 0:
+                    time.sleep(OHLCV_CALL_INTERVAL_SEC)
                 df = pyupbit.get_ohlcv(symbol, interval="minute60", count=200)
                 if df is None or df.empty:
                     continue
@@ -600,6 +603,7 @@ class TradingEngine:
                 current_price=current_prices.get(pos['symbol'], 0),
                 regime=self.current_regime,
                 exit_threshold=float(self.strategy_params.get("exit_threshold", 40.0)),
+                strategy=self.strategy,
             )
 
             if should_close or pos.get('status') == 'CLOSED':

@@ -288,7 +288,7 @@ async function renderDashboard() {
     </div>
   `;
 
-  root.append(grid, chartPanel, logPanel, orderLogPanel);
+  root.append(grid, chartPanel, orderLogPanel, logPanel);
   logPanel.querySelector('#log-refresh').onclick = loadActionLog;
   orderLogPanel.querySelector('#order-log-refresh').onclick = loadOrderLog;
 

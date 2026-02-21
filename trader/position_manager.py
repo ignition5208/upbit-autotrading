@@ -97,6 +97,7 @@ class PositionManager:
         current_price: float,
         regime: str,
         exit_threshold: float = 40.0,
+        strategy: str = "standard",
     ) -> Tuple[bool, str]:
         """
         포지션 청산 여부 확인
@@ -106,6 +107,11 @@ class PositionManager:
         """
         entry_price = position['avg_entry_price']
         score = position.get('entry_score', 0)
+        pnl_pct = ((current_price / entry_price) - 1.0) * 100 if entry_price > 0 and current_price > 0 else 0.0
+
+        # CRAZY 전략: +1% 이상 수익이면 즉시 익절
+        if strategy == "crazy" and pnl_pct >= 1.0:
+            return True, f"CRAZY 즉시익절 ({pnl_pct:.2f}% >= 1.00%)"
         
         # Exit threshold 체크
         if score < exit_threshold:
