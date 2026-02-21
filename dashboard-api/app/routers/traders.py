@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -10,6 +11,7 @@ from app.services.events import add_event
 from app.services.telegram import send_telegram
 from app.settings import Settings
 
+log = logging.getLogger("traders")
 router = APIRouter()
 _settings = Settings()
 
@@ -120,6 +122,12 @@ def create_trader(req: TraderCreateRequest, db: Session = Depends(get_db)):
     db.add(t)
     db.commit()
     add_event(db, t.name, "INFO", "trader", f"created (strategy={t.strategy}, risk={t.risk_mode}, seed={t.seed_krw})")
+    # 생성 즉시 PAPER 컨테이너 자동 시작
+    try:
+        ensure_trader_container(db, t, "PAPER")
+    except Exception as exc:
+        log.warning("Auto-start container failed for %s: %s", name, exc)
+        add_event(db, t.name, "WARN", "trader", f"컨테이너 자동 시작 실패: {exc}")
     return {"created": True, "name": t.name}
 
 

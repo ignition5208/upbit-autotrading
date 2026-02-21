@@ -246,12 +246,19 @@ async function loadDashboard() {
     API.get('/traders'),
   ]);
 
-  // Regime
+  // Regime (색상 포함)
   const snap = rgRes.data?.items?.[0];
   const regimeEl    = qs('#s-regime');
   const regimeSubEl = qs('#s-regime-sub');
   if (regimeEl) {
-    regimeEl.textContent    = snap ? snap.regime_label : '—';
+    const label = snap ? snap.regime_label : '—';
+    regimeEl.textContent = label;
+    regimeEl.className = 'stat-value v-regime';
+    if (label === 'PANIC')             regimeEl.classList.add('regime-panic');
+    else if (label === 'CHOP')         regimeEl.classList.add('regime-chop');
+    else if (label === 'TREND')        regimeEl.classList.add('regime-trend');
+    else if (label === 'BREAKOUT_ROTATION') regimeEl.classList.add('regime-breakout');
+    else                               regimeEl.classList.add('regime-range');
     if (regimeSubEl) regimeSubEl.textContent = snap ? `신뢰도 ${(snap.confidence * 100).toFixed(0)}% · ${snap.market}` : '';
   }
 
@@ -266,7 +273,7 @@ async function loadDashboard() {
   const canvas = qs('#profit-chart');
   const legendEl = qs('#chart-legend');
   if (canvas) {
-    const traders = (trRes.data?.items || []).map((t, i) => ({ name: t.name, points: [] }));
+    const traders = (trRes.data?.items || []).map(t => ({ name: t.name, points: [] }));
     drawChart(canvas, traders);
     if (legendEl) {
       legendEl.innerHTML = '';
@@ -403,10 +410,28 @@ async function renderTraders() {
       };
       const statusBadge = el('span', `badge badge-${t.status || 'STOP'}`);
       statusBadge.textContent = t.status || 'STOP';
+
+      // 24h 보호기간 배지
+      const remaining = t.paper_protect_remaining_sec || 0;
+      const statusWrap = el('div');
+      statusWrap.style.marginTop = '6px';
+      statusWrap.append(statusBadge);
+      if (remaining > 0) {
+        const hrs = Math.floor(remaining / 3600);
+        const mins = Math.floor((remaining % 3600) / 60);
+        const protBadge = el('span', 'badge badge-protect');
+        protBadge.textContent = `PAPER 보호 ${hrs}h ${mins}m`;
+        protBadge.title = '24시간 보호기간 중 LIVE 전환 불가';
+        statusWrap.append(protBadge);
+      } else if (t.armed_at) {
+        const armedBadge = el('span', 'badge badge-armed');
+        armedBadge.textContent = 'ARMED';
+        statusWrap.append(armedBadge);
+      }
+
       const runWrap = el('div', 'td-run');
       runWrap.append(mSel, applyBtn);
-      tdRun.append(runWrap);
-      tdRun.append(Object.assign(el('div'), { style: 'margin-top:6px;' })).append(statusBadge);
+      tdRun.append(runWrap, statusWrap);
 
       // MANAGEMENT
       const tdMgmt = el('td');
@@ -436,6 +461,25 @@ async function renderTraders() {
         },
       });
 
+      // ARM 버튼 (24h 보호기간 완료 + 미ARM 상태일 때만 표시)
+      const mgmtBtns = [runBtn, stopBtn];
+      if (remaining === 0 && !t.armed_at) {
+        const armBtn = el('button', 'btn btn-sm btn-arm');
+        armBtn.textContent = 'ARM';
+        armBtn.title = 'LIVE 전환 허용 (한 번만 가능)';
+        armBtn.onclick = () => showModal({
+          title: 'TRADER ARM',
+          body: `<strong>${t.name}</strong>을 ARM합니다.<br>ARM 이후 LIVE 모드로 전환할 수 있습니다.`,
+          confirmLabel: 'ARM',
+          onConfirm: async () => {
+            const r = await API.post(`/traders/${encodeURIComponent(t.name)}/arm`, {});
+            if (!r.ok) throw new Error(JSON.stringify(r.data));
+            await loadTraders();
+          },
+        });
+        mgmtBtns.push(armBtn);
+      }
+
       const rmBtn = el('button', 'btn btn-sm btn-danger');
       rmBtn.textContent = 'REMOVE';
       rmBtn.onclick = () => showModal({
@@ -448,8 +492,9 @@ async function renderTraders() {
           await loadTraders();
         },
       });
+      mgmtBtns.push(rmBtn);
 
-      mgmtWrap.append(runBtn, stopBtn, rmBtn);
+      mgmtWrap.append(...mgmtBtns);
       tdMgmt.append(mgmtWrap);
 
       tr.append(tdName, tdSeed, tdStrat, tdProfit, tdRun, tdMgmt);
@@ -522,10 +567,45 @@ async function renderTraders() {
 }
 
 // ===== STRATEGY =====
-function renderStrategy() {
-  const root = qs('#strategy');
-  root.innerHTML = '';
+const DEFAULT_PARAMS = {
+  safety_first: { entry_threshold: 75, exit_threshold: 35, risk_per_trade: 0.005, max_portfolio_risk: 0.03, max_positions: 5, slippage_limit: 0.003 },
+  standard:     { entry_threshold: 70, exit_threshold: 40, risk_per_trade: 0.010, max_portfolio_risk: 0.05, max_positions: 8, slippage_limit: 0.005 },
+  profit_first: { entry_threshold: 65, exit_threshold: 45, risk_per_trade: 0.015, max_portfolio_risk: 0.08, max_positions: 12, slippage_limit: 0.007 },
+  crazy:        { entry_threshold: 55, exit_threshold: 50, risk_per_trade: 0.025, max_portfolio_risk: 0.15, max_positions: 20, slippage_limit: 0.010 },
+  ai_mode:      { entry_threshold: 70, exit_threshold: 40, risk_per_trade: 0.010, max_portfolio_risk: 0.05, max_positions: 8, slippage_limit: 0.005 },
+};
 
+const PARAM_LABELS = {
+  entry_threshold:   { label: 'Entry Threshold', unit: '', min: 40, max: 100, step: 1 },
+  exit_threshold:    { label: 'Exit Threshold',  unit: '', min: 20, max: 80,  step: 1 },
+  risk_per_trade:    { label: 'Risk per Trade',  unit: '%', min: 0.001, max: 0.05, step: 0.001, pct: true },
+  max_portfolio_risk:{ label: 'Max Portfolio Risk', unit: '%', min: 0.01, max: 0.30, step: 0.01, pct: true },
+  max_positions:     { label: 'Max Positions',   unit: '', min: 1, max: 30, step: 1 },
+  slippage_limit:    { label: 'Slippage Limit',  unit: '%', min: 0.001, max: 0.02, step: 0.001, pct: true },
+};
+
+let _strategyConfigs = {};  // strategy_id → latest saved params
+
+async function loadStrategyConfigs() {
+  const res = await API.get('/configs');
+  _strategyConfigs = {};
+  if (res.ok && res.data?.items) {
+    for (const item of res.data.items) {
+      if (!_strategyConfigs[item.strategy_id] || item.is_active) {
+        try { _strategyConfigs[item.strategy_id] = JSON.parse(item.params); }
+        catch { /* ignore */ }
+      }
+    }
+  }
+}
+
+async function renderStrategy() {
+  const root = qs('#strategy');
+  root.innerHTML = '<div class="empty"><div class="empty-icon">⏳</div><div class="empty-text">로딩 중...</div></div>';
+
+  await loadStrategyConfigs();
+
+  root.innerHTML = '';
   const notice = el('div', 'strategy-notice');
   notice.textContent = '⚠  전략 프로파일 수정은 이 메뉴에서만 가능합니다.';
 
@@ -533,14 +613,21 @@ function renderStrategy() {
   const saved = localStorage.getItem('activeStrategy') || 'standard';
 
   STRATEGIES.forEach(s => {
+    const params = _strategyConfigs[s.id] || DEFAULT_PARAMS[s.id] || {};
     const card = el('div', 'strategy-card');
     if (s.id === saved) card.classList.add('active');
+
+    const editBtn = el('button', 'btn btn-sm strategy-edit-btn');
+    editBtn.textContent = 'EDIT';
+    editBtn.onclick = e => { e.stopPropagation(); openStrategyEdit(s, params); };
+
     card.innerHTML = `
       <div class="s-icon">${s.icon}</div>
       <div class="s-name">${s.label}</div>
       <div class="s-desc">${s.desc.replace(/\n/g, '<br>')}</div>
       <div class="s-badge">${s.risk_mode}</div>
     `;
+    card.append(editBtn);
     card.onclick = () => {
       localStorage.setItem('activeStrategy', s.id);
       qsa('.strategy-card').forEach(c => c.classList.remove('active'));
@@ -550,6 +637,47 @@ function renderStrategy() {
   });
 
   root.append(notice, grid);
+}
+
+function openStrategyEdit(s, currentParams) {
+  const form = el('div', 'strategy-form');
+  const inputs = {};
+  for (const [key, meta] of Object.entries(PARAM_LABELS)) {
+    const label = el('label');
+    label.textContent = meta.label + (meta.unit ? ` (${meta.unit})` : '');
+    const inp = el('input', 'input');
+    inp.type = 'number';
+    inp.step = meta.step;
+    inp.min  = meta.min;
+    inp.max  = meta.max;
+    const raw = currentParams[key] ?? DEFAULT_PARAMS[s.id]?.[key] ?? meta.min;
+    inp.value = meta.pct ? (raw * 100).toFixed(3) : raw;
+    inp.placeholder = String(meta.min);
+    inputs[key] = { el: inp, meta };
+    form.append(label, inp);
+  }
+
+  showModal({
+    title: `${s.label} — 파라미터 편집`,
+    body: form,
+    confirmLabel: 'SAVE',
+    onConfirm: async () => {
+      const params = {};
+      for (const [key, { el: inp, meta }] of Object.entries(inputs)) {
+        const v = parseFloat(inp.value);
+        if (isNaN(v)) throw new Error(`${key} 값이 올바르지 않습니다.`);
+        params[key] = meta.pct ? v / 100 : v;
+      }
+      const r = await API.post('/configs', { strategy_id: s.id, params });
+      if (!r.ok) throw new Error(JSON.stringify(r.data));
+      // 저장 후 활성화
+      if (r.data?.id) {
+        await API.post(`/configs/${r.data.id}/activate`, {});
+      }
+      _strategyConfigs[s.id] = params;
+      await renderStrategy();
+    },
+  });
 }
 
 // ===== CONFIG =====
