@@ -1,5 +1,0 @@
-exchange: upbit
-fee: 0.0005
-slippage: 0.0005
-telegram:
-  enabled: true

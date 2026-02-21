@@ -1,6 +1,0 @@
-enabled_regimes:
-  - BREAKOUT_ROTATION
-  - TREND
-  - RANGE
-min_weight: 0.5
-max_weight: 1.5

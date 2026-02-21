@@ -1,4 +1,0 @@
-name: challenge1
-params:
-  score_threshold: 10
-  topn: 5

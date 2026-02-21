@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Upbit ATS Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Upbit ATS <span class="version">v1.8-0010</span></div>
+    <nav class="nav">
+      <a href="#overview" class="tab" data-tab="overview">Overview</a>
+      <a href="#traders" class="tab" data-tab="traders">Traders</a>
+      <a href="#regime" class="tab" data-tab="regime">Regime</a>
+      <a href="#logs" class="tab" data-tab="logs">Logs</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section id="overview" class="view"></section>
+    <section id="traders" class="view hidden"></section>
+    <section id="regime" class="view hidden"></section>
+    <section id="logs" class="view hidden"></section>
+  </main>
+
+  <div id="modal-backdrop" class="modal-backdrop hidden"></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

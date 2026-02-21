@@ -1,1 +1,0 @@
-BLOCK_REGIMES = {"CHOP", "PANIC"}

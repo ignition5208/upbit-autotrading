@@ -1,14 +1,13 @@
-# Upbit Auto-Trading Platform (v1.8-0001) - Root Skeleton
+# Upbit ATS v1.8-0010
 
-이 ZIP은 프로젝트 루트 레벨의 스켈레톤입니다.
-모듈별 ZIP(shared/trader/trainer/dashboard-api/dashboard-web/infra/configs)과 함께 사용하세요.
+Local-first Docker-compose based Upbit auto-trading platform.
 
-## 구성(예시)
-- docker-compose.yml: mariadb + dashboard-api + dashboard-web + trainer (+ trader는 동적 생성)
-- scripts/: 편의 스크립트
-- docs/: 운영/설계 문서 스켈레톤
-- .env.example: 환경변수 샘플
+## Quick start
+1) Create `.env` from `.env.example`
+2) Build trader image once: `make trader-image`
+3) `docker compose up -d --build`
+4) Open: http://127.0.0.1:8080/dashboard/
 
-## 주의
-- `dashboard-api`는 주문 호출 금지(컨테이너 생성/관리/조회만)
-- LIVE는 ARM 이후만 주문 가능 (trader에서 강제)
+## Notes
+- Credentials are stored encrypted in MariaDB using Fernet (CRYPTO_MASTER_KEY).
+- For local dev, API key auth is disabled.
