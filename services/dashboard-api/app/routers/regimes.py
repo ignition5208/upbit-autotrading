@@ -1,44 +1,62 @@
+import json
 from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
-from sqlalchemy import select
 from app.db import get_db
 from app.models import RegimeSnapshot
 from app.services.events import add_event
+from app.services.bandit import sample_bandit_weight
 
 router = APIRouter()
 
+_REGIMES = [
+    {"id": 0, "label": "RANGE"},
+    {"id": 1, "label": "TREND"},
+    {"id": 2, "label": "CHOP"},
+    {"id": 3, "label": "PANIC"},
+    {"id": 4, "label": "BREAKOUT_ROTATION"},
+]
+
+_PANIC_NOTIFIED = False  # 프로세스당 PANIC 알람 중복 방지
+
+
 class SnapshotIn(BaseModel):
     market: str = Field(default="KRW-BTC")
-    regime_id: int
-    regime_label: str
+    regime_id: int = 0
+    regime_label: str = "RANGE"
     confidence: float = 0.0
     metrics: dict = Field(default_factory=dict)
 
+
 @router.get("/regimes")
 def list_regimes():
-    return {"items": [
-        {"id": 0, "label": "Neutral"},
-        {"id": 1, "label": "Bull"},
-        {"id": 2, "label": "Bear"},
-        {"id": 3, "label": "Sideways"},
-    ]}
+    return {"items": _REGIMES}
+
 
 @router.post("/regimes/snapshot")
 def post_snapshot(req: SnapshotIn, db: Session = Depends(get_db)):
+    global _PANIC_NOTIFIED
     snap = RegimeSnapshot(
         ts=datetime.utcnow(),
         market=req.market,
         regime_id=req.regime_id,
         regime_label=req.regime_label,
         confidence=req.confidence,
-        metrics_json=str(req.metrics),
+        metrics_json=json.dumps(req.metrics),
     )
     db.add(snap)
     db.commit()
-    add_event(db, None, "INFO", "regime", f"{req.market} {req.regime_label} conf={req.confidence:.2f}")
+    add_event(db, None, "INFO", "regime",
+              f"{req.market} {req.regime_label} conf={req.confidence:.2f}")
+    if req.regime_label == "PANIC" and not _PANIC_NOTIFIED:
+        from app.services.telegram import send_telegram
+        send_telegram("CRITICAL", f"PANIC 레짐 감지: {req.market} (신뢰도 {req.confidence:.0%})")
+        _PANIC_NOTIFIED = True
+    elif req.regime_label != "PANIC":
+        _PANIC_NOTIFIED = False
     return {"ok": True}
+
 
 @router.get("/regimes/snapshots")
 def list_snapshots(
@@ -55,7 +73,7 @@ def list_snapshots(
         "items": [
             {
                 "ts": r.ts.isoformat(),
-                "market": getattr(r, "market", None),
+                "market": getattr(r, "market", "KRW-BTC"),
                 "regime_id": r.regime_id,
                 "regime_label": r.regime_label,
                 "confidence": float(r.confidence),
@@ -64,3 +82,13 @@ def list_snapshots(
             for r in rows
         ]
     }
+
+
+@router.get("/regimes/weight/{regime_label}/{strategy_id}")
+def get_weight(
+    regime_label: str,
+    strategy_id: str,
+    db: Session = Depends(get_db),
+):
+    weight = sample_bandit_weight(db, regime=regime_label, strategy_id=strategy_id)
+    return {"regime": regime_label, "strategy_id": strategy_id, "weight": round(weight, 4)}

@@ -1,255 +1,686 @@
+// ===== API HELPER =====
 const API = {
-  get: (p) => fetch(`/api${p}`).then(async r => ({ok:r.ok, status:r.status, data: await r.json().catch(()=>null)})),
-  post: (p, body) => fetch(`/api${p}`, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)}).then(async r => ({ok:r.ok, status:r.status, data: await r.json().catch(()=>null)})),
-  del: (p) => fetch(`/api${p}`, {method:'DELETE'}).then(async r => ({ok:r.ok, status:r.status, data: await r.json().catch(()=>null)})),
+  get:  (p)       => fetch(`/api${p}`).then(async r => ({ ok: r.ok, data: await r.json().catch(() => null) })),
+  post: (p, body) => fetch(`/api${p}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then(async r => ({ ok: r.ok, data: await r.json().catch(() => null) })),
+  del:  (p)       => fetch(`/api${p}`, { method: 'DELETE' }).then(async r => ({ ok: r.ok, data: await r.json().catch(() => null) })),
 };
 
-function qs(sel){return document.querySelector(sel)}
-function el(tag, cls){const e=document.createElement(tag); if(cls) e.className=cls; return e;}
-function fmtTs(iso){ if(!iso) return '-'; const d=new Date(iso); return d.toLocaleString(); }
+// ===== CONSTANTS =====
+const STRATEGIES = [
+  { id: 'safety_first', label: 'SAFETY FIRST', risk_mode: 'SAFE',     icon: '🛡️', desc: '손실 최소화 우선.\n보수적 포지션 관리.' },
+  { id: 'standard',     label: 'STANDARD',     risk_mode: 'STANDARD', icon: '⚖️', desc: '균형잡힌 리스크.\n표준 전략 운용.' },
+  { id: 'profit_first', label: 'PROFIT FIRST', risk_mode: 'PROFIT',   icon: '📈', desc: '수익 극대화 추구.\n공격적 포지션.' },
+  { id: 'crazy',        label: 'CRAZY',        risk_mode: 'CRAZY',    icon: '🚀', desc: '초고위험 고수익.\n최대 레버리지 추구.' },
+  { id: 'ai_mode',      label: 'AI MODE',      risk_mode: 'STANDARD', icon: '🤖', desc: 'AI 자동 튜닝.\n레짐 적응형 최적화.' },
+];
 
-function setActiveTab(name){
-  document.querySelectorAll('.tab').forEach(t=>{
-    t.classList.toggle('active', t.dataset.tab===name);
-  });
-  document.querySelectorAll('.view').forEach(v=>v.classList.add('hidden'));
-  const target = qs('#'+name);
-  if(target) target.classList.remove('hidden');
+const CHART_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#a78bfa', '#fb7185', '#38bdf8', '#4ade80', '#f472b6'];
+
+let _refreshTimer = null;
+
+// ===== DOM HELPERS =====
+const qs  = sel => document.querySelector(sel);
+const qsa = sel => document.querySelectorAll(sel);
+function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
+
+function fmtTs(iso) {
+  if (!iso) return '-';
+  const d = new Date(iso.endsWith('Z') ? iso : iso + 'Z');
+  return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
-function modal(title, contentEl, onOk){
+function fmtKrw(n) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('ko-KR') + ' KRW';
+}
+
+function pnlHtml(n) {
+  if (n == null || n === 0) return '<span class="pnl-zero">—</span>';
+  const pct = (n * 100).toFixed(2);
+  return n > 0
+    ? `<span class="pnl-pos">+${pct}%</span>`
+    : `<span class="pnl-neg">${pct}%</span>`;
+}
+
+// ===== MODAL =====
+function showModal({ title, body, confirmLabel = 'APPLY', danger = false, onConfirm }) {
   const backdrop = qs('#modal-backdrop');
   backdrop.innerHTML = '';
-  const m = el('div','modal');
-  const h = el('h3'); h.textContent = title;
-  const actions = el('div','actions');
-  const cancel = el('button','btn'); cancel.textContent='Cancel';
-  cancel.onclick=()=>backdrop.classList.add('hidden');
-  const ok = el('button','btn primary'); ok.textContent='Save';
-  ok.onclick=async ()=>{
-    await onOk();
-    backdrop.classList.add('hidden');
+
+  const m = el('div', 'modal');
+  const t = el('div', 'modal-title'); t.textContent = title;
+  const b = el('div', 'modal-body');
+  if (typeof body === 'string') {
+    b.innerHTML = `<div class="modal-confirm-text">${body}</div>`;
+  } else {
+    b.append(body);
+  }
+
+  const acts = el('div', 'modal-actions');
+  const cancel = el('button', 'btn'); cancel.textContent = 'CANCEL';
+  cancel.onclick = () => backdrop.classList.add('hidden');
+
+  const confirm = el('button', `btn ${danger ? 'btn-danger' : 'btn-primary'}`);
+  confirm.textContent = confirmLabel;
+  confirm.onclick = async () => {
+    confirm.disabled = true;
+    confirm.textContent = '...';
+    try {
+      await onConfirm();
+      backdrop.classList.add('hidden');
+    } catch (e) {
+      confirm.disabled = false;
+      confirm.textContent = confirmLabel;
+      alert(String(e?.message || e));
+    }
   };
-  actions.append(cancel, ok);
-  m.append(h, contentEl, actions);
+
+  acts.append(cancel, confirm);
+  m.append(t, b, acts);
   backdrop.append(m);
   backdrop.classList.remove('hidden');
 }
 
-async function renderOverview(){
-  const root = qs('#overview');
-  root.innerHTML = '';
-  const card = el('div','card');
-  card.innerHTML = `<h2>Overview</h2><div class="pre" id="ov-pre">Loading...</div>`;
-  root.append(card);
-  const res = await API.get('/overview');
-  qs('#ov-pre').textContent = JSON.stringify(res.data, null, 2);
+// ===== PROFIT CHART (Canvas) =====
+function drawChart(canvas, traders) {
+  const dpr = window.devicePixelRatio || 1;
+  const W   = canvas.offsetWidth || 800;
+  const H   = 220;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.height = H + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const PAD = { t: 20, r: 20, b: 36, l: 54 };
+  const cw = W - PAD.l - PAD.r;
+  const ch = H - PAD.t - PAD.b;
+
+  // grid lines
+  ctx.strokeStyle = '#1a2840';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = PAD.t + (ch / 4) * i;
+    ctx.beginPath(); ctx.moveTo(PAD.l, y); ctx.lineTo(PAD.l + cw, y); ctx.stroke();
+  }
+
+  // axes
+  ctx.strokeStyle = '#223052';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD.l, PAD.t); ctx.lineTo(PAD.l, PAD.t + ch); ctx.lineTo(PAD.l + cw, PAD.t + ch);
+  ctx.stroke();
+
+  const hasData = traders.some(t => t.points && t.points.length > 1);
+  if (!hasData) {
+    // zero line (dashed)
+    ctx.strokeStyle = '#223052'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    const zy = PAD.t + ch / 2;
+    ctx.beginPath(); ctx.moveTo(PAD.l, zy); ctx.lineTo(PAD.l + cw, zy); ctx.stroke();
+    ctx.setLineDash([]);
+    // y labels
+    ctx.fillStyle = '#4e6080'; ctx.font = '11px system-ui'; ctx.textAlign = 'right';
+    ['+2%', '+1%', '0%', '-1%', '-2%'].forEach((lbl, i) => {
+      ctx.fillText(lbl, PAD.l - 6, PAD.t + (ch / 4) * i + 4);
+    });
+    // placeholder text
+    ctx.fillStyle = '#2d4060'; ctx.font = '13px system-ui'; ctx.textAlign = 'center';
+    ctx.fillText('수익 데이터 없음', W / 2, H / 2 + 4);
+    return;
+  }
+
+  // bounds
+  let minY = Infinity, maxY = -Infinity, minX = Infinity, maxX = -Infinity;
+  for (const t of traders) {
+    for (const p of (t.points || [])) {
+      if (p.pnl < minY) minY = p.pnl;
+      if (p.pnl > maxY) maxY = p.pnl;
+      if (p.ts < minX)  minX = p.ts;
+      if (p.ts > maxX)  maxX = p.ts;
+    }
+  }
+  const yPad = (maxY - minY) * 0.12 || 0.01;
+  minY -= yPad; maxY += yPad;
+  const xR = maxX - minX || 1;
+  const yR = maxY - minY;
+
+  // zero line
+  if (minY < 0 && maxY > 0) {
+    const zy = PAD.t + (maxY / yR) * ch;
+    ctx.strokeStyle = '#334155'; ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD.l, zy); ctx.lineTo(PAD.l + cw, zy); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // y labels
+  ctx.fillStyle = '#4e6080'; ctx.font = '11px system-ui'; ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = maxY - (yR / 4) * i;
+    ctx.fillText((val * 100).toFixed(1) + '%', PAD.l - 6, PAD.t + (ch / 4) * i + 4);
+  }
+
+  // lines
+  for (let i = 0; i < traders.length; i++) {
+    const t = traders[i];
+    if (!t.points || t.points.length < 2) continue;
+    ctx.strokeStyle = CHART_COLORS[i % CHART_COLORS.length];
+    ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    t.points.forEach((p, j) => {
+      const x = PAD.l + ((p.ts - minX) / xR) * cw;
+      const y = PAD.t + ((maxY - p.pnl) / yR) * ch;
+      j === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
 }
 
-async function renderRegime(){
-  const root = qs('#regime');
+// ===== DASHBOARD =====
+async function renderDashboard() {
+  const root = qs('#dashboard');
   root.innerHTML = '';
-  const card = el('div','card');
-  card.innerHTML = `<h2>Regime</h2><div class="pre" id="rg-pre">Loading...</div>`;
-  root.append(card);
-  const list = await API.get('/regimes/snapshots?limit=50');
-  qs('#rg-pre').textContent = JSON.stringify(list.data, null, 2);
+
+  // Stat cards
+  const grid = el('div', 'stats-grid');
+  grid.innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">CURRENT REGIME</div>
+      <div class="stat-value v-regime" id="s-regime">—</div>
+      <div class="stat-sub" id="s-regime-sub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">TOTAL TRADER</div>
+      <div class="stat-value" id="s-total">—</div>
+      <div class="stat-sub">등록된 트레이더 수</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">PAPER TRADER</div>
+      <div class="stat-value v-blue" id="s-paper">—</div>
+      <div class="stat-sub">페이퍼 모드 실행 중</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">LIVE TRADER</div>
+      <div class="stat-value v-green" id="s-live">—</div>
+      <div class="stat-sub">라이브 모드 실행 중</div>
+    </div>
+  `;
+
+  // Chart panel
+  const chartPanel = el('div', 'panel');
+  chartPanel.innerHTML = `
+    <div class="panel-header">
+      <span class="panel-title">PROFIT CHART</span>
+      <div class="chart-legend" id="chart-legend"></div>
+    </div>
+    <div class="panel-body" style="padding-bottom:16px;">
+      <canvas class="chart-canvas" id="profit-chart"></canvas>
+    </div>
+  `;
+
+  // Log panel
+  const logPanel = el('div', 'panel');
+  logPanel.innerHTML = `
+    <div class="panel-header">
+      <span class="panel-title">TRADERS ACTION LOG</span>
+      <button class="btn btn-sm" id="log-refresh">↻ 새로고침</button>
+    </div>
+    <div class="panel-body" style="padding:12px 16px;">
+      <div class="log-list" id="log-list">
+        <div class="empty"><div class="empty-icon">📋</div><div class="empty-text">로딩 중...</div></div>
+      </div>
+    </div>
+  `;
+
+  root.append(grid, chartPanel, logPanel);
+  logPanel.querySelector('#log-refresh').onclick = loadDashboard;
+
+  await loadDashboard();
 }
 
-async function renderLogs(){
-  const root = qs('#logs');
-  root.innerHTML = '';
-  const card = el('div','card');
-  card.innerHTML = `<h2>Action Logs</h2><div class="pre" id="lg-pre">Loading...</div>`;
-  root.append(card);
-  const res = await API.get('/events?limit=200');
-  qs('#lg-pre').textContent = JSON.stringify(res.data, null, 2);
+async function loadDashboard() {
+  // Fetch all in parallel
+  const [ovRes, rgRes, evRes, trRes] = await Promise.all([
+    API.get('/overview'),
+    API.get('/regimes/snapshots?limit=1'),
+    API.get('/events?limit=100'),
+    API.get('/traders'),
+  ]);
+
+  // Regime
+  const snap = rgRes.data?.items?.[0];
+  const regimeEl    = qs('#s-regime');
+  const regimeSubEl = qs('#s-regime-sub');
+  if (regimeEl) {
+    regimeEl.textContent    = snap ? snap.regime_label : '—';
+    if (regimeSubEl) regimeSubEl.textContent = snap ? `신뢰도 ${(snap.confidence * 100).toFixed(0)}% · ${snap.market}` : '';
+  }
+
+  // Stats
+  const ov = ovRes.data || {};
+  const setTxt = (id, v) => { const e = qs(id); if (e) e.textContent = v ?? '—'; };
+  setTxt('#s-total', ov.total_traders);
+  setTxt('#s-paper', ov.paper_traders);
+  setTxt('#s-live',  ov.live_traders);
+
+  // Chart
+  const canvas = qs('#profit-chart');
+  const legendEl = qs('#chart-legend');
+  if (canvas) {
+    const traders = (trRes.data?.items || []).map((t, i) => ({ name: t.name, points: [] }));
+    drawChart(canvas, traders);
+    if (legendEl) {
+      legendEl.innerHTML = '';
+      (trRes.data?.items || []).forEach((t, i) => {
+        const item = el('div', 'legend-item');
+        const dot  = el('span', 'legend-dot');
+        dot.style.background = CHART_COLORS[i % CHART_COLORS.length];
+        item.append(dot, document.createTextNode(t.name));
+        legendEl.append(item);
+      });
+    }
+  }
+
+  // Events log
+  const logList = qs('#log-list');
+  if (logList) {
+    const events = evRes.data?.items || [];
+    if (events.length === 0) {
+      logList.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">이벤트 없음</div></div>';
+    } else {
+      logList.innerHTML = '';
+      for (const ev of events) {
+        const row = el('div', 'log-row');
+        row.innerHTML = `
+          <span class="log-ts">${fmtTs(ev.ts)}</span>
+          <span class="log-level ${ev.level || 'INFO'}">${ev.level || 'INFO'}</span>
+          <span class="log-trader">${ev.trader_name || 'system'}</span>
+          <span class="log-msg">${ev.message || ''}</span>
+        `;
+        logList.append(row);
+      }
+    }
+  }
 }
 
-async function renderTraders(){
+// ===== TRADERS =====
+async function renderTraders() {
   const root = qs('#traders');
   root.innerHTML = '';
 
-  const grid = el('div','grid');
-  const left = el('div','card');
-  left.innerHTML = `<div class="row" style="justify-content:space-between">
-    <h2 style="margin:0">Traders</h2>
-    <div class="row"><button class="btn primary" id="add">ADD</button><button class="btn" id="refresh">Refresh</button></div>
-  </div>
-  <table><thead><tr>
-    <th>Name</th><th>Status</th><th>Mode</th><th>Strategy</th><th>Risk</th><th>Credential</th><th>Heartbeat</th><th>Actions</th>
-  </tr></thead><tbody id="tbody"></tbody></table>`;
-  const tbody = left.querySelector('#tbody');
+  const panel = el('div', 'table-panel');
+  panel.innerHTML = `
+    <div class="table-toolbar">
+      <span class="toolbar-title">TRADERS</span>
+      <div class="toolbar-right">
+        <button class="btn btn-sm" id="t-refresh">↻ 새로고침</button>
+        <button class="btn btn-sm btn-primary" id="t-add">+ TRADER ADD</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>TRADER NAME</th>
+            <th>TRADER SEED</th>
+            <th>TRADER STRATEGY</th>
+            <th>TRADER PROFIT</th>
+            <th>TRADER RUN</th>
+            <th>TRADER MANAGEMENT</th>
+          </tr>
+        </thead>
+        <tbody id="t-tbody"></tbody>
+      </table>
+    </div>
+  `;
+  root.append(panel);
 
-  async function loadTraders(){
-    tbody.innerHTML = `<tr><td colspan="8" class="small">Loading...</td></tr>`;
+  async function loadTraders() {
+    const tbody = qs('#t-tbody');
+    tbody.innerHTML = `<tr><td colspan="6"><div class="empty" style="padding:36px 0;"><div class="empty-icon">⏳</div><div class="empty-text">로딩 중...</div></div></td></tr>`;
+
     const res = await API.get('/traders');
-    if(!res.ok){ tbody.innerHTML = `<tr><td colspan="8" class="small">Error: ${JSON.stringify(res.data)}</td></tr>`; return; }
-    const items = res.data?.items || [];
-    if(items.length===0){
-      tbody.innerHTML = `<tr><td colspan="8" class="small">No traders yet. Click ADD.</td></tr>`;
+    if (!res.ok) {
+      tbody.innerHTML = `<tr><td colspan="6" style="padding:20px;color:var(--danger2);">API 오류: ${JSON.stringify(res.data)}</td></tr>`;
       return;
     }
+
+    const items = res.data?.items || [];
+    if (items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6"><div class="empty"><div class="empty-icon">🤖</div><div class="empty-text">트레이더 없음. TRADER ADD 버튼으로 추가하세요.</div></div></td></tr>`;
+      return;
+    }
+
     tbody.innerHTML = '';
-    for(const t of items){
+    for (const t of items) {
+      const strat = STRATEGIES.find(s => s.id === t.strategy);
+      const stratLabel = strat ? strat.label : t.strategy;
       const tr = el('tr');
-      const hb = t.last_heartbeat_at ? fmtTs(t.last_heartbeat_at) : '-';
-      const st = t.status || 'STOP';
-      const badgeCls = st==='RUN' ? 'ok' : (st==='ERROR' ? 'danger' : 'warn');
-      tr.innerHTML = `<td>${t.name}</td>
-        <td><span class="badge ${badgeCls}">${st}</span></td>
-        <td>${t.run_mode}</td><td>${t.strategy}</td><td>${t.risk_mode}</td><td>${t.credential_name || '-'}</td><td>${hb}</td><td></td>`;
-      const tdAct = tr.querySelector('td:last-child');
 
-      const runPaper = el('button','btn'); runPaper.textContent='RUN(PAPER)';
-      runPaper.onclick=async()=>{ await API.post(`/traders/${encodeURIComponent(t.name)}/run`, {run_mode:'PAPER'}); await loadTraders(); };
+      // NAME
+      const tdName = el('td');
+      tdName.innerHTML = `<div class="td-name-main">${t.name}</div><div class="td-name-sub">${t.credential_name || '자격증명 없음'}</div>`;
 
-      const runLive = el('button','btn'); runLive.textContent='RUN(LIVE)';
-      runLive.onclick=async()=>{ await API.post(`/traders/${encodeURIComponent(t.name)}/run`, {run_mode:'LIVE'}); await loadTraders(); };
+      // SEED
+      const tdSeed = el('td');
+      tdSeed.innerHTML = `<span class="td-mono">${fmtKrw(t.seed_krw)}</span>`;
 
-      const stop = el('button','btn'); stop.textContent='STOP';
-      stop.onclick=async()=>{ await API.post(`/traders/${encodeURIComponent(t.name)}/stop`, {}); await loadTraders(); };
+      // STRATEGY
+      const tdStrat = el('td');
+      tdStrat.innerHTML = `<div class="td-strat-main">${stratLabel}</div><div class="td-strat-sub">${t.risk_mode}</div>`;
 
-      const remove = el('button','btn danger'); remove.textContent='REMOVE';
-      remove.onclick=async()=>{ if(confirm('Remove trader?')){ await API.del(`/traders/${encodeURIComponent(t.name)}`); await loadTraders(); } };
+      // PROFIT
+      const tdProfit = el('td');
+      tdProfit.innerHTML = pnlHtml(t.pnl ?? null);
 
-      tdAct.append(runPaper, runLive, stop, remove);
+      // RUN (mode select + APPLY + status badge)
+      const tdRun = el('td');
+      const mSel = el('select', 'mode-select');
+      ['PAPER', 'LIVE'].forEach(v => {
+        const o = el('option'); o.value = v; o.textContent = v;
+        if (t.run_mode === v) o.selected = true;
+        mSel.append(o);
+      });
+      const applyBtn = el('button', 'btn btn-sm btn-primary');
+      applyBtn.textContent = 'APPLY';
+      applyBtn.onclick = () => {
+        const mode = mSel.value;
+        showModal({
+          title: 'RUN MODE 변경',
+          body: `<strong>${t.name}</strong>의 모드를 <strong>${mode}</strong>로 변경하고 실행합니다.`,
+          onConfirm: async () => {
+            const r = await API.post(`/traders/${encodeURIComponent(t.name)}/run`, { run_mode: mode });
+            if (!r.ok) throw new Error(JSON.stringify(r.data));
+            await loadTraders();
+          },
+        });
+      };
+      const statusBadge = el('span', `badge badge-${t.status || 'STOP'}`);
+      statusBadge.textContent = t.status || 'STOP';
+      const runWrap = el('div', 'td-run');
+      runWrap.append(mSel, applyBtn);
+      tdRun.append(runWrap);
+      tdRun.append(Object.assign(el('div'), { style: 'margin-top:6px;' })).append(statusBadge);
+
+      // MANAGEMENT
+      const tdMgmt = el('td');
+      const mgmtWrap = el('div', 'td-mgmt');
+
+      const runBtn = el('button', 'btn btn-sm');
+      runBtn.textContent = 'RUN';
+      runBtn.onclick = () => showModal({
+        title: 'TRADER 실행',
+        body: `<strong>${t.name}</strong>을 <strong>${t.run_mode}</strong> 모드로 실행합니다.`,
+        onConfirm: async () => {
+          const r = await API.post(`/traders/${encodeURIComponent(t.name)}/run`, { run_mode: t.run_mode });
+          if (!r.ok) throw new Error(JSON.stringify(r.data));
+          await loadTraders();
+        },
+      });
+
+      const stopBtn = el('button', 'btn btn-sm');
+      stopBtn.textContent = 'STOP';
+      stopBtn.onclick = () => showModal({
+        title: 'TRADER 중지',
+        body: `<strong>${t.name}</strong>을 중지합니다.`,
+        onConfirm: async () => {
+          const r = await API.post(`/traders/${encodeURIComponent(t.name)}/stop`, {});
+          if (!r.ok) throw new Error(JSON.stringify(r.data));
+          await loadTraders();
+        },
+      });
+
+      const rmBtn = el('button', 'btn btn-sm btn-danger');
+      rmBtn.textContent = 'REMOVE';
+      rmBtn.onclick = () => showModal({
+        title: 'TRADER 삭제',
+        body: `<strong>${t.name}</strong>을 완전히 삭제합니다. 이 작업은 되돌릴 수 없습니다.`,
+        danger: true,
+        onConfirm: async () => {
+          const r = await API.del(`/traders/${encodeURIComponent(t.name)}`);
+          if (!r.ok) throw new Error(JSON.stringify(r.data));
+          await loadTraders();
+        },
+      });
+
+      mgmtWrap.append(runBtn, stopBtn, rmBtn);
+      tdMgmt.append(mgmtWrap);
+
+      tr.append(tdName, tdSeed, tdStrat, tdProfit, tdRun, tdMgmt);
       tbody.append(tr);
     }
   }
 
-  async function loadCreds(){
-    const r = await API.get('/credentials');
-    return r.data?.items || [];
-  }
+  panel.querySelector('#t-refresh').onclick = loadTraders;
 
-  left.querySelector('#add').onclick = async ()=>{
-    const creds = await loadCreds();
+  panel.querySelector('#t-add').onclick = async () => {
+    const credsRes = await API.get('/credentials');
+    const creds = credsRes.data?.items || [];
+
     const form = el('div');
+    const nameInput = el('input', 'input');
+    nameInput.placeholder = 'trader-01';
 
-    const name = el('input','input'); name.placeholder='trader name';
-    const strategy = el('input','input'); strategy.placeholder='strategy (e.g., challenge1)';
-    const risk = el('select'); risk.className='input';
-    ['SAFE','STANDARD','PROFIT','CRAZY'].forEach(v=>{ const o=el('option'); o.value=v; o.textContent=v; risk.append(o); });
-    const credSel = el('select'); credSel.className='input';
-    const o0 = el('option'); o0.value=''; o0.textContent='(none)'; credSel.append(o0);
-    for(const c of creds){ const o=el('option'); o.value=c.name; o.textContent=c.name; credSel.append(o); }
-    const runMode = el('select'); runMode.className='input';
-    ['PAPER','LIVE'].forEach(v=>{ const o=el('option'); o.value=v; o.textContent=v; runMode.append(o); });
+    const stratSel = el('select', 'iselect');
+    STRATEGIES.forEach(s => {
+      const o = el('option'); o.value = s.id; o.textContent = s.label;
+      stratSel.append(o);
+    });
+    // Pre-select from STRATEGY menu active state
+    const savedStrat = localStorage.getItem('activeStrategy');
+    if (savedStrat) stratSel.value = savedStrat;
+
+    const seedInput = el('input', 'input');
+    seedInput.type = 'number'; seedInput.placeholder = '1000000'; seedInput.min = '0';
+
+    const credSel = el('select', 'iselect');
+    const none = el('option'); none.value = ''; none.textContent = '(없음)'; credSel.append(none);
+    creds.forEach(c => { const o = el('option'); o.value = c.name; o.textContent = c.name; credSel.append(o); });
 
     form.append(
-      Object.assign(el('label'),{textContent:'Trader Name'}), name,
-      Object.assign(el('label'),{textContent:'Strategy'}), strategy,
-      Object.assign(el('label'),{textContent:'Risk Mode'}), risk,
-      Object.assign(el('label'),{textContent:'Credential'}), credSel,
-      Object.assign(el('label'),{textContent:'Default Run Mode'}), runMode
+      Object.assign(el('label'), { textContent: 'NAME' }), nameInput,
+      Object.assign(el('label'), { textContent: 'STRATEGY' }), stratSel,
+      Object.assign(el('label'), { textContent: 'SEED MONEY (KRW)' }), seedInput,
+      Object.assign(el('label'), { textContent: 'CREDENTIAL' }), credSel,
     );
 
-    modal('Create Trader', form, async ()=>{
-      const payload = {
-        trader_name: name.value.trim(),
-        strategy: strategy.value.trim() || 'challenge1',
-        risk_mode: risk.value,
-        run_mode: runMode.value,
-        seed_krw: null,
-        credential_name: credSel.value || null,
-      };
-      if(!payload.trader_name) throw new Error('Trader name required');
-      const r = await API.post('/traders', payload);
-      if(!r.ok) throw new Error(JSON.stringify(r.data));
-      await loadTraders();
+    showModal({
+      title: 'TRADER ADD',
+      body: form,
+      confirmLabel: 'CREATE',
+      onConfirm: async () => {
+        const name = nameInput.value.trim();
+        if (!name) throw new Error('NAME을 입력하세요.');
+        const sel = STRATEGIES.find(s => s.id === stratSel.value) || STRATEGIES[1];
+        const r = await API.post('/traders', {
+          trader_name: name,
+          strategy:    sel.id,
+          risk_mode:   sel.risk_mode,
+          run_mode:    'PAPER',
+          seed_krw:    seedInput.value ? Number(seedInput.value) : null,
+          credential_name: credSel.value || null,
+        });
+        if (!r.ok) throw new Error(JSON.stringify(r.data));
+        await loadTraders();
+      },
     });
   };
 
-  left.querySelector('#refresh').onclick = loadTraders;
-
-  // right column
-  const right = el('div');
-  right.style.display='flex';
-  right.style.flexDirection='column';
-  right.style.gap='16px';
-
-  const credCard = el('div','card');
-  credCard.innerHTML = `<h2>Credentials</h2>
-    <label>Name</label><input class="input" id="cname" placeholder="credential name">
-    <label>Access Key</label><input class="input" id="access" placeholder="upbit access key">
-    <label>Secret Key</label><input class="input" id="secret" placeholder="upbit secret key">
-    <div class="row" style="margin-top:12px"><button class="btn primary" id="savecred">Save Credential</button></div>
-    <div class="small" style="margin-top:10px">Keys are encrypted in DB (CRYPTO_MASTER_KEY).</div>
-    <div id="credlist" class="small" style="margin-top:10px">Loading...</div>`;
-  const cname = credCard.querySelector('#cname');
-  const access = credCard.querySelector('#access');
-  const secret = credCard.querySelector('#secret');
-  const credlist = credCard.querySelector('#credlist');
-
-  async function refreshCredList(){
-    const r = await API.get('/credentials');
-    if(!r.ok){ credlist.textContent = 'Error: '+JSON.stringify(r.data); return; }
-    const items = r.data?.items || [];
-    if(items.length===0){ credlist.textContent='No credentials yet.'; return; }
-    credlist.innerHTML='';
-    for(const c of items){
-      const row = el('div','row');
-      const b = el('span','badge'); b.textContent=c.name;
-      const del = el('button','btn danger'); del.textContent='Delete';
-      del.onclick=async()=>{ if(confirm('Delete credential?')){ await API.del(`/credentials/${encodeURIComponent(c.name)}`); await refreshCredList(); } };
-      row.append(b, del);
-      credlist.append(row);
-    }
-  }
-
-  credCard.querySelector('#savecred').onclick = async ()=>{
-    const payload = {name:cname.value.trim(), access_key:access.value.trim(), secret_key:secret.value.trim()};
-    if(!payload.name || !payload.access_key || !payload.secret_key){ alert('Fill all fields'); return; }
-    const r = await API.post('/credentials', payload);
-    if(!r.ok){ alert(JSON.stringify(r.data)); return; }
-    cname.value=''; access.value=''; secret.value='';
-    await refreshCredList();
-  };
-
-  const hint = el('div','card');
-  hint.innerHTML = `<h2>Tips</h2><div class="small">
-  - RUN 버튼은 trader 컨테이너(ats-trader-*)를 생성합니다.<br>
-  - 먼저 <code>make trader-image</code> 실행 후 RUN 하세요.
-  </div>`;
-
-  right.append(credCard, hint);
-
-  grid.append(left, right);
-  root.append(grid);
-
-  await refreshCredList();
   await loadTraders();
 }
 
-function initNav(){
-  document.querySelectorAll('.tab').forEach(t=>{
-    t.onclick=(e)=>{e.preventDefault(); setActiveTab(t.dataset.tab);};
+// ===== STRATEGY =====
+function renderStrategy() {
+  const root = qs('#strategy');
+  root.innerHTML = '';
+
+  const notice = el('div', 'strategy-notice');
+  notice.textContent = '⚠  전략 프로파일 수정은 이 메뉴에서만 가능합니다.';
+
+  const grid = el('div', 'strategy-grid');
+  const saved = localStorage.getItem('activeStrategy') || 'standard';
+
+  STRATEGIES.forEach(s => {
+    const card = el('div', 'strategy-card');
+    if (s.id === saved) card.classList.add('active');
+    card.innerHTML = `
+      <div class="s-icon">${s.icon}</div>
+      <div class="s-name">${s.label}</div>
+      <div class="s-desc">${s.desc.replace(/\n/g, '<br>')}</div>
+      <div class="s-badge">${s.risk_mode}</div>
+    `;
+    card.onclick = () => {
+      localStorage.setItem('activeStrategy', s.id);
+      qsa('.strategy-card').forEach(c => c.classList.remove('active'));
+      card.classList.add('active');
+    };
+    grid.append(card);
   });
-  const hash = location.hash.replace('#','') || 'overview';
-  setActiveTab(hash);
-  window.addEventListener('hashchange', ()=>{
-    const h = location.hash.replace('#','') || 'overview';
-    setActiveTab(h);
-  });
+
+  root.append(notice, grid);
 }
 
-async function boot(){
-  initNav();
-  await renderOverview();
-  await renderTraders();
-  await renderRegime();
-  await renderLogs();
+// ===== CONFIG =====
+async function renderConfig() {
+  const root = qs('#config');
+  root.innerHTML = '';
 
-  document.querySelectorAll('.tab').forEach(t=>{
-    t.addEventListener('click', async ()=>{
-      const name=t.dataset.tab;
-      if(name==='overview') await renderOverview();
-      if(name==='traders') await renderTraders();
-      if(name==='regime') await renderRegime();
-      if(name==='logs') await renderLogs();
+  const panel = el('div', 'table-panel');
+  panel.innerHTML = `
+    <div class="table-toolbar">
+      <span class="toolbar-title">CREDENTIALS</span>
+      <div class="toolbar-right">
+        <button class="btn btn-sm btn-primary" id="cred-add">+ ADD</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>NAME</th><th>등록일</th><th>ACTIONS</th></tr>
+        </thead>
+        <tbody id="cred-tbody"></tbody>
+      </table>
+    </div>
+  `;
+  root.append(panel);
+
+  async function loadCreds() {
+    const tbody = qs('#cred-tbody');
+    tbody.innerHTML = `<tr><td colspan="3"><div class="empty" style="padding:36px 0;"><div class="empty-icon">⏳</div><div class="empty-text">로딩 중...</div></div></td></tr>`;
+
+    const res = await API.get('/credentials');
+    if (!res.ok) {
+      tbody.innerHTML = `<tr><td colspan="3" style="padding:20px;color:var(--danger2);">API 오류</td></tr>`;
+      return;
+    }
+
+    const items = res.data?.items || [];
+    if (items.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="3"><div class="empty"><div class="empty-icon">🔑</div><div class="empty-text">등록된 자격증명 없음</div></div></td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = '';
+    for (const c of items) {
+      const tr = el('tr');
+      const tdName = el('td');
+      tdName.innerHTML = `<span style="font-weight:700;font-family:ui-monospace,monospace;">${c.name}</span>`;
+      const tdDate = el('td'); tdDate.textContent = fmtTs(c.created_at);
+      const tdAct  = el('td');
+      const delBtn = el('button', 'btn btn-sm btn-danger'); delBtn.textContent = 'DELETE';
+      delBtn.onclick = () => showModal({
+        title: 'CREDENTIAL 삭제',
+        body: `<strong>${c.name}</strong> 자격증명을 삭제합니다.`,
+        danger: true,
+        onConfirm: async () => {
+          const r = await API.del(`/credentials/${encodeURIComponent(c.name)}`);
+          if (!r.ok) throw new Error(JSON.stringify(r.data));
+          await loadCreds();
+        },
+      });
+      tdAct.append(delBtn);
+      tr.append(tdName, tdDate, tdAct);
+      tbody.append(tr);
+    }
+  }
+
+  panel.querySelector('#cred-add').onclick = () => {
+    const form = el('div');
+    const nameIn   = el('input', 'input'); nameIn.placeholder = 'my-upbit-key';
+    const accessIn = el('input', 'input'); accessIn.placeholder = 'Upbit Access Key';
+    const secretIn = el('input', 'input'); secretIn.type = 'password'; secretIn.placeholder = 'Upbit Secret Key';
+    form.append(
+      Object.assign(el('label'), { textContent: 'NAME' }),   nameIn,
+      Object.assign(el('label'), { textContent: 'ACCESS KEY' }), accessIn,
+      Object.assign(el('label'), { textContent: 'SECRET KEY' }), secretIn,
+    );
+    showModal({
+      title: 'CREDENTIAL ADD',
+      body: form,
+      onConfirm: async () => {
+        if (!nameIn.value.trim() || !accessIn.value.trim() || !secretIn.value.trim())
+          throw new Error('모든 필드를 입력하세요.');
+        const r = await API.post('/credentials', {
+          name: nameIn.value.trim(),
+          access_key: accessIn.value.trim(),
+          secret_key: secretIn.value.trim(),
+        });
+        if (!r.ok) throw new Error(JSON.stringify(r.data));
+        await loadCreds();
+      },
     });
+  };
+
+  await loadCreds();
+}
+
+// ===== NAVIGATION =====
+async function setTab(name) {
+  if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+
+  qsa('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  qsa('.view').forEach(v => v.classList.add('hidden'));
+  const view = qs('#' + name);
+  if (view) view.classList.remove('hidden');
+
+  if (name === 'dashboard') {
+    await renderDashboard();
+    _refreshTimer = setInterval(loadDashboard, 10000);
+  } else if (name === 'traders') {
+    await renderTraders();
+  } else if (name === 'strategy') {
+    renderStrategy();
+  } else if (name === 'config') {
+    await renderConfig();
+  }
+}
+
+// ===== API HEALTH =====
+async function checkHealth() {
+  try {
+    const r = await fetch('/health');
+    const dot = qs('#api-status');
+    if (dot) dot.className = 'api-status ' + (r.ok ? 'ok' : 'err');
+  } catch {
+    const dot = qs('#api-status');
+    if (dot) dot.className = 'api-status err';
+  }
+}
+
+// ===== BOOT =====
+async function boot() {
+  qsa('.tab').forEach(t => {
+    t.onclick = e => { e.preventDefault(); setTab(t.dataset.tab); };
+  });
+
+  await checkHealth();
+  setInterval(checkHealth, 30000);
+
+  const hash = location.hash.replace('#', '') || 'dashboard';
+  await setTab(hash);
+
+  window.addEventListener('hashchange', () => {
+    setTab(location.hash.replace('#', '') || 'dashboard');
   });
 }
 
-boot().catch(e=>{ console.error(e); alert(String(e)); });
+boot().catch(e => console.error('[ATS boot]', e));

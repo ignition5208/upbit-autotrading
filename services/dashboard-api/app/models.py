@@ -1,7 +1,8 @@
 from datetime import datetime
-from sqlalchemy import String, Integer, DateTime, Text, Float
+from sqlalchemy import String, Integer, DateTime, Text, Float, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
+
 
 class Credential(Base):
     __tablename__ = "credentials"
@@ -10,17 +11,23 @@ class Credential(Base):
     secret_key_enc: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+
 class Trader(Base):
     __tablename__ = "traders"
     name: Mapped[str] = mapped_column(String(64), primary_key=True)
-    strategy: Mapped[str] = mapped_column(String(64), default="challenge1")
+    strategy: Mapped[str] = mapped_column(String(64), default="standard")
     risk_mode: Mapped[str] = mapped_column(String(16), default="STANDARD")
     run_mode: Mapped[str] = mapped_column(String(8), default="PAPER")
     credential_name: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="STOP")
     container_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    seed_krw: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pnl_krw: Mapped[float] = mapped_column(Float, default=0.0)
+    paper_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    armed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
 
 class Event(Base):
     __tablename__ = "events"
@@ -31,12 +38,87 @@ class Event(Base):
     kind: Mapped[str] = mapped_column(String(64), default="system")
     message: Mapped[str] = mapped_column(Text, default="")
 
+
 class RegimeSnapshot(Base):
     __tablename__ = "regime_snapshots"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     market: Mapped[str] = mapped_column(String(32), default="KRW-BTC")
     regime_id: Mapped[int] = mapped_column(Integer, default=0)
-    regime_label: Mapped[str] = mapped_column(String(32), default="Neutral")
+    regime_label: Mapped[str] = mapped_column(String(32), default="RANGE")
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     metrics_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+# ===== STAB-0001: Runtime Guard 상태 =====
+class TraderSafetyState(Base):
+    __tablename__ = "trader_safety_state"
+    trader_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    daily_loss_krw: Mapped[float] = mapped_column(Float, default=0.0)
+    consecutive_losses: Mapped[int] = mapped_column(Integer, default=0)
+    last_loss_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    blocked: Mapped[bool] = mapped_column(Boolean, default=False)
+    block_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ===== OPT-0004: Multi-Armed Bandit =====
+class BanditState(Base):
+    __tablename__ = "bandit_states"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    regime: Mapped[str] = mapped_column(String(32))           # TREND, RANGE, CHOP, PANIC, BREAKOUT_ROTATION
+    strategy_id: Mapped[str] = mapped_column(String(64))
+    alpha: Mapped[float] = mapped_column(Float, default=1.0)  # Thompson: 성공+1
+    beta_: Mapped[float] = mapped_column("beta", Float, default=1.0)  # Thompson: 실패+1
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ===== §7: 모델 배포 라이프사이클 =====
+class ModelVersion(Base):
+    __tablename__ = "model_versions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_id: Mapped[str] = mapped_column(String(64))
+    version: Mapped[str] = mapped_column(String(32))
+    # DRAFT → VALIDATED → PAPER_DEPLOYED → LIVE_ELIGIBLE → LIVE_ARMED
+    status: Mapped[str] = mapped_column(String(32), default="DRAFT")
+    metrics_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    deployed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rollback_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
+# ===== OPT-0001: 데이터 파이프라인 =====
+class ScanRun(Base):
+    __tablename__ = "scan_runs"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    strategy_id: Mapped[str] = mapped_column(String(64))
+    market_count: Mapped[int] = mapped_column(Integer, default=0)
+    top_n: Mapped[int] = mapped_column(Integer, default=5)
+    params_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
+class FeatureSnapshot(Base):
+    __tablename__ = "feature_snapshots"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    scan_run_id: Mapped[int] = mapped_column(Integer, ForeignKey("scan_runs.id"), index=True)
+    market: Mapped[str] = mapped_column(String(32))
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    features_json: Mapped[str] = mapped_column(Text, default="{}")
+    label_ret_60m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    label_ret_240m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    label_mfe_240m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    label_mae_240m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    label_dd_240m: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+# ===== 전략 설정 이력 =====
+class ConfigVersion(Base):
+    __tablename__ = "config_versions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_id: Mapped[str] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(Integer, default=1)
+    params_json: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
