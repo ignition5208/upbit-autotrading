@@ -35,25 +35,68 @@ def _protect_remaining_sec(t: Trader) -> int:
     return max(0, int(remaining))
 
 
+@router.get("/traders/{trader_name}")
+def get_trader(trader_name: str, db: Session = Depends(get_db)):
+    """Trader 상세 정보 조회"""
+    t = db.get(Trader, trader_name)
+    if not t:
+        raise HTTPException(404, "not found")
+    
+    pnl_pct = None
+    if t.seed_krw and t.seed_krw > 0:
+        pnl_pct = t.pnl_krw / t.seed_krw if t.pnl_krw else 0.0
+    elif t.pnl_krw:
+        pnl_pct = 0.0
+    
+    return {
+        "name": t.name,
+        "strategy": t.strategy,
+        "risk_mode": t.risk_mode,
+        "run_mode": t.run_mode,
+        "credential_name": t.credential_name,
+        "status": t.status,
+        "container_name": t.container_name,
+        "seed_krw": t.seed_krw,
+        "pnl_krw": t.pnl_krw,
+        "pnl": pnl_pct,
+        "paper_started_at": t.paper_started_at.isoformat() if t.paper_started_at else None,
+        "armed_at": t.armed_at.isoformat() if t.armed_at else None,
+        "paper_protect_remaining_sec": _protect_remaining_sec(t),
+        "last_heartbeat_at": t.last_heartbeat_at.isoformat() if t.last_heartbeat_at else None,
+        "created_at": t.created_at.isoformat(),
+    }
+
+
 @router.get("/traders")
 def list_traders(db: Session = Depends(get_db)):
     rows = db.execute(select(Trader).order_by(Trader.created_at.desc())).scalars().all()
-    return {"items": [{
-        "name": r.name,
-        "strategy": r.strategy,
-        "risk_mode": r.risk_mode,
-        "run_mode": r.run_mode,
-        "credential_name": r.credential_name,
-        "status": r.status,
-        "container_name": r.container_name,
-        "seed_krw": r.seed_krw,
-        "pnl_krw": r.pnl_krw,
-        "paper_started_at": r.paper_started_at.isoformat() if r.paper_started_at else None,
-        "armed_at": r.armed_at.isoformat() if r.armed_at else None,
-        "paper_protect_remaining_sec": _protect_remaining_sec(r),
-        "last_heartbeat_at": r.last_heartbeat_at.isoformat() if r.last_heartbeat_at else None,
-        "created_at": r.created_at.isoformat(),
-    } for r in rows]}
+    items = []
+    for r in rows:
+        # 수익률 계산 (seed_krw 기준)
+        pnl_pct = None
+        if r.seed_krw and r.seed_krw > 0:
+            pnl_pct = r.pnl_krw / r.seed_krw if r.pnl_krw else 0.0
+        elif r.pnl_krw:
+            pnl_pct = 0.0
+        
+        items.append({
+            "name": r.name,
+            "strategy": r.strategy,
+            "risk_mode": r.risk_mode,
+            "run_mode": r.run_mode,
+            "credential_name": r.credential_name,
+            "status": r.status,
+            "container_name": r.container_name,
+            "seed_krw": r.seed_krw,
+            "pnl_krw": r.pnl_krw,
+            "pnl": pnl_pct,  # 프론트엔드 호환성
+            "paper_started_at": r.paper_started_at.isoformat() if r.paper_started_at else None,
+            "armed_at": r.armed_at.isoformat() if r.armed_at else None,
+            "paper_protect_remaining_sec": _protect_remaining_sec(r),
+            "last_heartbeat_at": r.last_heartbeat_at.isoformat() if r.last_heartbeat_at else None,
+            "created_at": r.created_at.isoformat(),
+        })
+    return {"items": items}
 
 
 @router.post("/traders")

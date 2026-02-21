@@ -1,6 +1,7 @@
 from sqlalchemy import inspect, text
 from app.db import engine, Base
 from app.models import BanditState  # noqa: F401 – needed so Base.metadata has it
+from app.models_trading import Signal, Order, Trade, Position, ConfigAudit  # noqa: F401
 
 
 _REGIMES = ["TREND", "RANGE", "CHOP", "PANIC", "BREAKOUT_ROTATION"]

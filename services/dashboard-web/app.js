@@ -336,15 +336,22 @@ async function renderTraders() {
 
   async function loadTraders() {
     const tbody = qs('#t-tbody');
+    if (!tbody) {
+      console.error('[loadTraders] tbody element not found');
+      return;
+    }
     tbody.innerHTML = `<tr><td colspan="6"><div class="empty" style="padding:36px 0;"><div class="empty-icon">⏳</div><div class="empty-text">로딩 중...</div></div></td></tr>`;
 
     const res = await API.get('/traders');
     if (!res.ok) {
+      console.error('[loadTraders] API error:', res.data);
       tbody.innerHTML = `<tr><td colspan="6" style="padding:20px;color:var(--danger2);">API 오류: ${JSON.stringify(res.data)}</td></tr>`;
       return;
     }
 
+    console.log('[loadTraders] API response:', res.data);
     const items = res.data?.items || [];
+    console.log('[loadTraders] Items count:', items.length);
     if (items.length === 0) {
       tbody.innerHTML = `<tr><td colspan="6"><div class="empty"><div class="empty-icon">🤖</div><div class="empty-text">트레이더 없음. TRADER ADD 버튼으로 추가하세요.</div></div></td></tr>`;
       return;

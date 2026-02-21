@@ -1,7 +1,10 @@
 from datetime import datetime
-from sqlalchemy import String, Integer, DateTime, Text, Float, Boolean, ForeignKey
+from sqlalchemy import String, Integer, DateTime, Text, Float, Boolean, ForeignKey, BigInteger
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
+
+# 거래 관련 모델 import
+from app.models_trading import Signal, Order, Trade, Position, ConfigAudit
 
 
 class Credential(Base):
