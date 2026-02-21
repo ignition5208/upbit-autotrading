@@ -2,7 +2,7 @@
 
 # 🚀 Upbit Auto-Trading Platform
 
-# 📘 기능명세서 v1.8-0010 (UI 고정 안정화 버전)
+# 📘 기능명세서 v2.0-0001 (UI 고정 안정화 버전)
 
 ---
 
@@ -20,7 +20,7 @@ Upbit 단일 거래소 기반의 멀티 Trader 자동매매 플랫폼.
 
 ---
 
-## v1.8-0010 포함 범위
+## v2.0-0001 포함 범위
 
 * Score-Strategy 구조
 * Regime Engine v1.0
@@ -394,7 +394,7 @@ down/up 이후에도 유지:
 
 ---
 
-# 🎯 v1.8-0010 아키텍처 철학
+# 🎯 v2.0-0001 아키텍처 철학
 
 * 전략은 deterministic
 * AI는 보조 계층

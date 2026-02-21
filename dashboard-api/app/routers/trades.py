@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import get_db
 from app.models_trading import Signal, Order, Trade, Position
 import json
+import httpx
 
 router = APIRouter()
 
@@ -155,3 +156,88 @@ def list_positions(
             "take_prices": json.loads(r.take_prices_json),
         } for r in rows]
     }
+
+
+@router.get("/trades/holdings")
+def get_holdings(
+    trader_name: str,
+    db: Session = Depends(get_db),
+):
+    """
+    트레이더별 현재 보유현황(순수량/평균매수가) 계산.
+    FILLED 주문을 시간순으로 재생하여 포지션을 추정한다.
+    """
+    rows = (
+        db.query(Order)
+        .filter_by(trader_name=trader_name, status="FILLED")
+        .order_by(Order.created_at.asc())
+        .all()
+    )
+
+    positions: dict[str, dict] = {}
+    for r in rows:
+        market = r.symbol
+        side = (r.side or "").upper()
+        qty = float(r.filled_qty if (r.filled_qty and r.filled_qty > 0) else r.size)
+        px = float(r.avg_price if r.avg_price is not None else r.price or 0)
+        if qty <= 0 or px <= 0:
+            continue
+
+        if market not in positions:
+            positions[market] = {"qty": 0.0, "avg_entry_price": 0.0, "last_ts": None}
+        p = positions[market]
+
+        if side == "BUY":
+            new_qty = p["qty"] + qty
+            p["avg_entry_price"] = (
+                ((p["avg_entry_price"] * p["qty"]) + (px * qty)) / new_qty
+                if new_qty > 0 else 0.0
+            )
+            p["qty"] = new_qty
+        elif side == "SELL":
+            p["qty"] = max(0.0, p["qty"] - qty)
+            if p["qty"] == 0.0:
+                p["avg_entry_price"] = 0.0
+
+        p["last_ts"] = r.created_at.isoformat()
+
+    # 현재가 조회 (Upbit ticker API, 다중 마켓 일괄 조회)
+    current_price_map: dict[str, float] = {}
+    markets = [m for m, p in positions.items() if p["qty"] > 0]
+    if markets:
+        try:
+            resp = httpx.get(
+                "https://api.upbit.com/v1/ticker",
+                params={"markets": ",".join(markets)},
+                timeout=5.0,
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                for item in data:
+                    mk = item.get("market")
+                    cp = item.get("trade_price")
+                    if mk and cp is not None:
+                        current_price_map[str(mk)] = float(cp)
+        except Exception:
+            pass
+
+    items = []
+    for market, p in positions.items():
+        if p["qty"] <= 0:
+            continue
+        current_price = current_price_map.get(market)
+        pnl_pct = None
+        if current_price and p["avg_entry_price"] > 0:
+            pnl_pct = (current_price / p["avg_entry_price"]) - 1.0
+        items.append({
+            "market": market,
+            "qty": round(float(p["qty"]), 8),
+            "avg_entry_price": round(float(p["avg_entry_price"]), 4),
+            "current_price": round(float(current_price), 4) if current_price else None,
+            "pnl_pct": round(float(pnl_pct), 6) if pnl_pct is not None else None,
+            "position_value_krw": round(float(p["qty"] * p["avg_entry_price"]), 2),
+            "last_ts": p["last_ts"],
+        })
+
+    items.sort(key=lambda x: x["position_value_krw"], reverse=True)
+    return {"trader_name": trader_name, "items": items}

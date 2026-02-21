@@ -4,7 +4,7 @@ from pydantic import Field
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    version: str = Field(default="v1.8-0010")
+    version: str = Field(default="v2.0-0001")
     log_level: str = Field(default="INFO")
 
     mysql_host: str = Field(default="mariadb", alias="MYSQL_HOST")

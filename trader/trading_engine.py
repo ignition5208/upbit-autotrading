@@ -5,6 +5,7 @@ Final Score = base_score × regime_weight × bandit_weight × risk_multiplier
 """
 import os
 import time
+import json
 import httpx
 import pyupbit
 import pandas as pd
@@ -41,6 +42,64 @@ DEFAULT_REGIME_WEIGHT: Dict[str, float] = {
     'RANGE':              1.0,
     'CHOP':               0.3,
     'PANIC':              0.0,
+}
+
+DEFAULT_STRATEGY_PARAMS: Dict[str, Dict[str, float]] = {
+    "safety_first": {
+        "entry_threshold": 55.0,
+        "exit_threshold": 35.0,
+        "risk_per_trade": 0.005,
+        "max_portfolio_risk": 0.03,
+        "slippage_limit": 0.003,
+        "allow_add_buy": 1.0,
+        "max_add_count": 1.0,
+        "add_position_ratio": 0.15,
+        "add_min_base_score": 72.0,
+    },
+    "standard": {
+        "entry_threshold": 60.0,
+        "exit_threshold": 40.0,
+        "risk_per_trade": 0.01,
+        "max_portfolio_risk": 0.05,
+        "slippage_limit": 0.005,
+        "allow_add_buy": 1.0,
+        "max_add_count": 2.0,
+        "add_position_ratio": 0.25,
+        "add_min_base_score": 70.0,
+    },
+    "profit_first": {
+        "entry_threshold": 58.0,
+        "exit_threshold": 45.0,
+        "risk_per_trade": 0.015,
+        "max_portfolio_risk": 0.08,
+        "slippage_limit": 0.007,
+        "allow_add_buy": 1.0,
+        "max_add_count": 3.0,
+        "add_position_ratio": 0.35,
+        "add_min_base_score": 68.0,
+    },
+    "crazy": {
+        "entry_threshold": 52.0,
+        "exit_threshold": 50.0,
+        "risk_per_trade": 0.025,
+        "max_portfolio_risk": 0.15,
+        "slippage_limit": 0.01,
+        "allow_add_buy": 1.0,
+        "max_add_count": 4.0,
+        "add_position_ratio": 0.5,
+        "add_min_base_score": 65.0,
+    },
+    "ai_mode": {
+        "entry_threshold": 60.0,
+        "exit_threshold": 40.0,
+        "risk_per_trade": 0.01,
+        "max_portfolio_risk": 0.05,
+        "slippage_limit": 0.005,
+        "allow_add_buy": 1.0,
+        "max_add_count": 2.0,
+        "add_position_ratio": 0.3,
+        "add_min_base_score": 70.0,
+    },
 }
 
 
@@ -88,6 +147,7 @@ class TradingEngine:
         self.current_regime = None
         self.open_positions = []
         self.equity = self.seed_krw
+        self.strategy_params = DEFAULT_STRATEGY_PARAMS.get(self.strategy, DEFAULT_STRATEGY_PARAMS["standard"]).copy()
 
     def _post_event(self, level: str, kind: str, message: str) -> None:
         """Dashboard events에 트레이더 액션 기록"""
@@ -180,6 +240,56 @@ class TradingEngine:
             print(f"[engine] Failed to get BTC data: {e}")
             return None
 
+    def _get_held_symbols(self) -> set[str]:
+        """
+        DB에 기록된 체결 기준 현재 보유 심볼 조회.
+        컨테이너 재시작으로 open_positions 메모리가 비어도 중복 진입을 방지한다.
+        """
+        try:
+            resp = httpx.get(
+                f"{self.dashboard_api_base}/api/trades/holdings",
+                params={"trader_name": self.trader_name},
+                timeout=5.0,
+            )
+            if resp.status_code != 200:
+                return set()
+            items = resp.json().get("items", [])
+            return {str(i.get("market")) for i in items if i.get("market")}
+        except Exception:
+            return set()
+
+    def _load_strategy_params(self) -> Dict[str, float]:
+        """
+        dashboard-api의 active config에서 전략 파라미터 로드.
+        실패하면 전략 기본값 사용.
+        """
+        params = DEFAULT_STRATEGY_PARAMS.get(self.strategy, DEFAULT_STRATEGY_PARAMS["standard"]).copy()
+        try:
+            resp = httpx.get(f"{self.dashboard_api_base}/api/configs", timeout=5.0)
+            if resp.status_code != 200:
+                return params
+            items = resp.json().get("items", [])
+            active = None
+            for item in items:
+                if item.get("strategy_id") == self.strategy and item.get("is_active") is True:
+                    active = item
+                    break
+            if active and active.get("params"):
+                cfg_params = json.loads(active["params"])
+                if isinstance(cfg_params, dict):
+                    params.update(cfg_params)
+        except Exception:
+            pass
+        return params
+
+    def _apply_strategy_params(self) -> None:
+        """로드된 전략 파라미터를 체커/사이저에 반영"""
+        self.strategy_params = self._load_strategy_params()
+        self.pre_trade_checker.entry_threshold = float(self.strategy_params.get("entry_threshold", 60.0))
+        self.position_sizer.risk_per_trade = float(self.strategy_params.get("risk_per_trade", 0.01))
+        self.position_sizer.max_portfolio_risk = float(self.strategy_params.get("max_portfolio_risk", 0.05))
+        self.position_sizer.slippage_limit = float(self.strategy_params.get("slippage_limit", 0.005))
+
     # ─────────────────────────────────────────────────
     # 메인 사이클
     # ─────────────────────────────────────────────────
@@ -188,6 +298,7 @@ class TradingEngine:
         """거래 사이클 실행"""
         print(f"[engine] Starting trading cycle for {self.trader_name}")
         self._post_event("INFO", "cycle", "trading cycle started")
+        self._apply_strategy_params()
 
         # 1. Regime 조회
         regime_info = self._get_current_regime()
@@ -210,6 +321,15 @@ class TradingEngine:
                 f"regime_w={regime_weight:.2f} bandit_w={bandit_weight:.2f} risk_w={risk_mult:.2f}"
             ),
         )
+        self._post_event(
+            "INFO",
+            "config",
+            (
+                f"strategy={self.strategy} entry={self.pre_trade_checker.entry_threshold:.1f} "
+                f"exit={float(self.strategy_params.get('exit_threshold', 40.0)):.1f} "
+                f"risk_per_trade={self.position_sizer.risk_per_trade:.4f}"
+            ),
+        )
 
         # PANIC → 신규 진입 금지, 포지션 50% 축소
         if self.current_regime == 'PANIC':
@@ -225,6 +345,7 @@ class TradingEngine:
 
         # 4. BTC 데이터 로드
         btc_df = self._get_btc_data()
+        held_symbols = self._get_held_symbols()
 
         # 5. 스코어링 + Final Score 계산
         scored_candidates = []
@@ -296,9 +417,32 @@ class TradingEngine:
         for candidate in scored_candidates[:10]:
             symbol = candidate['symbol']
             total_score = candidate['total_score']
+            base_score = candidate['base_score']
+            existing_pos = next((p for p in self.open_positions if p['symbol'] == symbol), None)
+            is_held = existing_pos is not None or symbol in held_symbols
+            is_add_buy = False
+            size_multiplier = 1.0
 
-            if any(p['symbol'] == symbol for p in self.open_positions):
-                continue
+            if is_held:
+                allow_add_buy = float(self.strategy_params.get("allow_add_buy", 0.0)) > 0
+                max_add_count = int(float(self.strategy_params.get("max_add_count", 0.0)))
+                add_min_base_score = float(self.strategy_params.get("add_min_base_score", 999.0))
+                add_position_ratio = float(self.strategy_params.get("add_position_ratio", 0.0))
+
+                # 컨테이너 재시작 등으로 메모리에 없는 보유 포지션은 중복 진입 방지 우선
+                if existing_pos is None:
+                    continue
+                buy_count = int(existing_pos.get("buy_count", 1))
+
+                if (not allow_add_buy) or (buy_count >= 1 + max_add_count):
+                    continue
+                if base_score < add_min_base_score:
+                    continue
+                if add_position_ratio <= 0:
+                    continue
+
+                is_add_buy = True
+                size_multiplier = add_position_ratio
 
             current_positions_risk = sum(
                 abs(p.get('unreal_pnl_pct', 0)) / 100 for p in self.open_positions
@@ -306,7 +450,7 @@ class TradingEngine:
 
             passed, failed_reasons = self.pre_trade_checker.check_all(
                 symbol=symbol,
-                total_score=total_score,
+                total_score=base_score,
                 regime=self.current_regime,
                 expected_order_krw=candidate.get('avg_depth5', 0) * 0.3,
                 avg_depth5=candidate.get('avg_depth5', 0),
@@ -332,25 +476,43 @@ class TradingEngine:
             if sizing['position_size'] <= 0:
                 continue
 
+            order_size = sizing['position_size'] * size_multiplier
+            if order_size <= 0:
+                continue
+
             result = self.order_executor.execute_order(
                 trader_name=self.trader_name,
                 symbol=symbol,
                 side='BUY',
                 price=entry_price,
-                size=sizing['position_size'],
+                size=order_size,
             )
 
             if result['success']:
-                position = {
-                    'symbol':          symbol,
-                    'avg_entry_price': result['avg_price'],
-                    'size':            result['filled_qty'],
-                    'stop_price':      sizing['stop_price'],
-                    'take_prices':     sizing['take_prices'],
-                    'entry_score':     total_score,
-                    'status':          'OPEN',
-                }
-                self.open_positions.append(position)
+                if existing_pos is not None:
+                    prev_size = float(existing_pos.get('size', 0.0))
+                    prev_avg = float(existing_pos.get('avg_entry_price', result['avg_price']))
+                    add_size = float(result['filled_qty'])
+                    new_size = prev_size + add_size
+                    existing_pos['avg_entry_price'] = (
+                        ((prev_avg * prev_size) + (result['avg_price'] * add_size)) / new_size
+                        if new_size > 0 else result['avg_price']
+                    )
+                    existing_pos['size'] = new_size
+                    existing_pos['entry_score'] = base_score
+                    existing_pos['buy_count'] = int(existing_pos.get('buy_count', 1)) + 1
+                else:
+                    position = {
+                        'symbol':          symbol,
+                        'avg_entry_price': result['avg_price'],
+                        'size':            result['filled_qty'],
+                        'stop_price':      sizing['stop_price'],
+                        'take_prices':     sizing['take_prices'],
+                        'entry_score':     base_score,
+                        'buy_count':       1,
+                        'status':          'OPEN',
+                    }
+                    self.open_positions.append(position)
                 self._log_signal(
                     symbol,
                     total_score,
@@ -363,7 +525,8 @@ class TradingEngine:
                     "INFO",
                     "order",
                     (
-                        f"ENTRY {symbol} score={total_score:.2f} "
+                        f"{'ADD' if is_add_buy else 'ENTRY'} {symbol} "
+                        f"base_score={base_score:.2f} final_score={total_score:.2f} "
                         f"price={result['avg_price']:.0f} size={result['filled_qty']:.6f}"
                     ),
                 )
@@ -436,6 +599,7 @@ class TradingEngine:
                 position=pos,
                 current_price=current_prices.get(pos['symbol'], 0),
                 regime=self.current_regime,
+                exit_threshold=float(self.strategy_params.get("exit_threshold", 40.0)),
             )
 
             if should_close or pos.get('status') == 'CLOSED':

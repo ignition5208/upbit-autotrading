@@ -1,4 +1,4 @@
-# Upbit ATS v1.8-0010
+# Upbit ATS v2.0-0001
 
 Local-first Docker-compose based Upbit auto-trading platform.
 

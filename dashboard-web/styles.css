@@ -135,6 +135,7 @@ tr:last-child td { border-bottom: none; }
 tbody tr:hover td { background: rgba(255,255,255,.013); }
 
 .td-name-main  { font-weight: 700; }
+.td-name-row { display: flex; align-items: center; gap: 8px; }
 .td-name-sub   { font-size: 11px; color: var(--muted2); margin-top: 2px; }
 .td-mono       { font-family: ui-monospace, monospace; font-size: 12px; }
 .td-strat-main { font-weight: 700; }
@@ -257,11 +258,15 @@ label:first-child { margin-top: 0; }
   border: 1px solid var(--line2); border-radius: 20px; padding: 26px;
   box-shadow: 0 32px 80px rgba(0,0,0,.7);
 }
+.modal.modal-wide { width: min(1120px, 96vw); }
 .modal-title   { font-size: 15px; font-weight: 900; margin-bottom: 20px; letter-spacing: .2px; }
 .modal-body    { margin-bottom: 22px; }
 .modal-confirm-text { font-size: 14px; color: var(--muted2); line-height: 1.7; }
 .modal-confirm-text strong { color: var(--text); }
 .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+.detail-table th,
+.detail-table td { white-space: nowrap; }
 
 /* ===== EMPTY STATE ===== */
 .empty { text-align: center; padding: 52px 20px; color: var(--muted); }

@@ -107,15 +107,25 @@ class OrderExecutor:
             current_price = ticker.get('trade_price', price)
             slippage = random.uniform(-0.001, 0.001)
             fill_price = current_price * (1 + slippage)
+            filled_qty = (size / fill_price) if side == 'BUY' and fill_price > 0 else size
 
             order_id = f"PAPER_{trader_name}_{symbol}_{int(time.time())}"
 
-            self._record_order(trader_name, order_id, symbol, side, price, size, fill_price)
+            self._record_order(
+                trader_name=trader_name,
+                order_id=order_id,
+                symbol=symbol,
+                side=side,
+                price=price,
+                size=size,
+                fill_price=fill_price,
+                filled_qty=filled_qty,
+            )
 
             return {
                 'success':    True,
                 'order_id':   order_id,
-                'filled_qty': size,
+                'filled_qty': filled_qty,
                 'avg_price':  fill_price,
                 'error':      None,
             }
@@ -164,7 +174,16 @@ class OrderExecutor:
                         filled_qty += exec_qty
                         last_price = exec_price
                         order_id   = resp.get('uuid', f"LIVE_{int(time.time())}_{part_idx}")
-                        self._record_order(trader_name, order_id, symbol, side, price, partial_size, exec_price)
+                        self._record_order(
+                            trader_name=trader_name,
+                            order_id=order_id,
+                            symbol=symbol,
+                            side=side,
+                            price=price,
+                            size=partial_size,
+                            fill_price=exec_price,
+                            filled_qty=exec_qty,
+                        )
                         print(f"[executor] LIVE {side} {symbol} part{part_idx+1}/{parts} OK @ {exec_price}")
                         success = True
                         break
@@ -230,6 +249,7 @@ class OrderExecutor:
         price: float,
         size: float,
         fill_price: float,
+        filled_qty: float,
     ) -> None:
         """체결 내역 Dashboard API에 기록"""
         try:
@@ -243,7 +263,7 @@ class OrderExecutor:
                     'price':       price,
                     'size':        size,
                     'status':      'FILLED',
-                    'filled_qty':  size,
+                    'filled_qty':  filled_qty,
                     'avg_price':   fill_price,
                 },
                 timeout=5.0,

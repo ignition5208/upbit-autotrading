@@ -43,12 +43,17 @@ function pnlHtml(n) {
     : `<span class="pnl-neg">${pct}%</span>`;
 }
 
+function fmtQty(n) {
+  if (n == null) return '—';
+  return Number(n).toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 8 });
+}
+
 // ===== MODAL =====
-function showModal({ title, body, confirmLabel = 'APPLY', danger = false, onConfirm }) {
+function showModal({ title, body, confirmLabel = 'APPLY', danger = false, onConfirm, modalClass = '' }) {
   const backdrop = qs('#modal-backdrop');
   backdrop.innerHTML = '';
 
-  const m = el('div', 'modal');
+  const m = el('div', `modal ${modalClass}`.trim());
   const t = el('div', 'modal-title'); t.textContent = title;
   const b = el('div', 'modal-body');
   if (typeof body === 'string') {
@@ -460,7 +465,7 @@ async function renderTraders() {
 
       // NAME
       const tdName = el('td');
-      tdName.innerHTML = `<div class="td-name-main">${t.name}</div><div class="td-name-sub">${t.credential_name || '자격증명 없음'}</div>`;
+      tdName.innerHTML = `<div class="td-name-row"><span class="td-name-main">${t.name}</span></div><div class="td-name-sub">${t.credential_name || '자격증명 없음'}</div>`;
 
       // SEED
       const tdSeed = el('td');
@@ -548,6 +553,60 @@ async function renderTraders() {
           await loadTraders();
         },
       });
+
+      const detailBtn = el('button', 'btn btn-sm');
+      detailBtn.textContent = 'DETAIL';
+      detailBtn.onclick = async () => {
+        const hRes = await API.get(`/trades/holdings?trader_name=${encodeURIComponent(t.name)}`);
+        if (!hRes.ok) {
+          alert('보유현황 조회 실패');
+          return;
+        }
+        const items = hRes.data?.items || [];
+        const box = el('div');
+        if (items.length === 0) {
+          box.innerHTML = '<div class="empty"><div class="empty-icon">📦</div><div class="empty-text">보유 포지션 없음</div></div>';
+        } else {
+          const tableWrap = el('div', 'table-wrap');
+          tableWrap.innerHTML = `
+            <table class="detail-table">
+              <thead>
+                <tr>
+                  <th>MARKET</th>
+                  <th>QTY</th>
+                  <th>AVG BUY</th>
+                  <th>CURRENT</th>
+                  <th>PnL</th>
+                  <th>VALUE</th>
+                  <th>LAST UPDATE</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items.map(p => `
+                  <tr>
+                    <td>${p.market}</td>
+                    <td>${fmtQty(p.qty)}</td>
+                    <td>${fmtKrw(p.avg_entry_price)}</td>
+                    <td>${fmtKrw(p.current_price)}</td>
+                    <td>${pnlHtml(p.pnl_pct ?? 0)}</td>
+                    <td>${fmtKrw(p.position_value_krw)}</td>
+                    <td>${fmtTs(p.last_ts)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `;
+          box.append(tableWrap);
+        }
+        showModal({
+          title: `${t.name} 보유현황`,
+          body: box,
+          confirmLabel: '확인',
+          modalClass: 'modal-wide',
+          onConfirm: async () => {},
+        });
+      };
+      tdName.querySelector('.td-name-row')?.append(detailBtn);
 
       // ARM 버튼 (24h 보호기간 완료 + 미ARM 상태일 때만 표시)
       const mgmtBtns = [runBtn, stopBtn];
