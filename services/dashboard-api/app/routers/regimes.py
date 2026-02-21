@@ -90,5 +90,40 @@ def get_weight(
     strategy_id: str,
     db: Session = Depends(get_db),
 ):
+    """Bandit 가중치 반환"""
     weight = sample_bandit_weight(db, regime=regime_label, strategy_id=strategy_id)
     return {"regime": regime_label, "strategy_id": strategy_id, "weight": round(weight, 4)}
+
+
+@router.get("/regimes/regime-weight/{regime_label}")
+def get_regime_weight(
+    regime_label: str,
+    base_weight: float = 1.0,
+    db: Session = Depends(get_db),
+):
+    """Regime 가중치 계산 (지침 4.3)"""
+    from app.services.regime import calculate_regime_weight
+    weight = calculate_regime_weight(db, regime_label, base_weight=base_weight)
+    return {"regime": regime_label, "base_weight": base_weight, "applied_weight": round(weight, 4)}
+
+
+@router.get("/regimes/entry-blocked")
+def check_entry_blocked(
+    market: str = "KRW-BTC",
+    db: Session = Depends(get_db),
+):
+    """신규 진입 차단 여부 확인"""
+    from app.services.regime import is_entry_blocked
+    blocked, reason = is_entry_blocked(db, market)
+    return {"blocked": blocked, "reason": reason}
+
+
+@router.get("/regimes/should-reduce-position")
+def check_should_reduce_position(
+    market: str = "KRW-BTC",
+    db: Session = Depends(get_db),
+):
+    """포지션 축소 필요 여부 확인"""
+    from app.services.regime import should_reduce_position
+    should_reduce = should_reduce_position(db, market)
+    return {"should_reduce": should_reduce}

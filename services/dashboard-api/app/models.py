@@ -59,6 +59,11 @@ class TraderSafetyState(Base):
     last_loss_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     block_reason: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    slippage_anomaly_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_slippage_check: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    api_error_count: Mapped[int] = mapped_column(Integer, default=0)
+    db_error_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_error_check: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
@@ -122,3 +127,40 @@ class ConfigVersion(Base):
     params_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+# ===== OPT-0003: 튜닝 후보 =====
+class ModelCandidate(Base):
+    __tablename__ = "model_candidates"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_id: Mapped[str] = mapped_column(String(64), index=True)
+    params_json: Mapped[str] = mapped_column(Text, default="{}")
+    metrics_json: Mapped[str] = mapped_column(Text, default="{}")
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String(16), default="PENDING")  # PENDING, PASS, REJECT
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+# ===== STAB-0002: Baseline & Drift =====
+class ModelBaseline(Base):
+    __tablename__ = "model_baselines"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    strategy_id: Mapped[str] = mapped_column(String(64), index=True)
+    baseline_model_id: Mapped[int] = mapped_column(Integer, nullable=True)
+    baseline_metrics_json: Mapped[str] = mapped_column(Text, default="{}")
+    reference_window_start: Mapped[datetime] = mapped_column(DateTime)
+    reference_window_end: Mapped[datetime] = mapped_column(DateTime)
+    drift_warn_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_drift_check: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ModelMetrics24h(Base):
+    __tablename__ = "model_metrics_24h"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    model_id: Mapped[int] = mapped_column(Integer, index=True)
+    strategy_id: Mapped[str] = mapped_column(String(64), index=True)
+    ts: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    net_return_24h: Mapped[float] = mapped_column(Float, default=0.0)
+    metrics_json: Mapped[str] = mapped_column(Text, default="{}")

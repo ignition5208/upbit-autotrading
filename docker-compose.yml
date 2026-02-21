@@ -46,6 +46,15 @@ services:
       dashboard-api:
         condition: service_started
 
+  trainer:
+    build:
+      context: ./services/trainer
+    environment:
+      DASHBOARD_API_BASE: http://dashboard-api:8000
+      TRAINER_INTERVAL_SEC: "3600"
+    depends_on:
+      - dashboard-api
+
   nginx:
     image: nginx:1.27.5
     ports:

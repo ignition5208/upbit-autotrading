@@ -4,7 +4,7 @@ from app.settings import Settings
 from app.logging_ import configure_logging
 from app.db import Base, engine
 from app.migrate import ensure_columns
-from app.routers import health, metrics, traders, credentials, models, regimes, events, configs
+from app.routers import health, metrics, traders, credentials, models, regimes, events, configs, trainer
 
 settings = Settings()
 configure_logging(settings.log_level)
@@ -33,6 +33,7 @@ app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(regimes.router, prefix="/api", tags=["regimes"])
 app.include_router(events.router, prefix="/api", tags=["events"])
 app.include_router(configs.router, prefix="/api", tags=["configs"])
+app.include_router(trainer.router, prefix="/api", tags=["trainer"])
 
 @app.get("/")
 def root():
