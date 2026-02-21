@@ -10,6 +10,7 @@ import pyupbit
 import pandas as pd
 from datetime import datetime
 from typing import Dict, List, Optional
+from market_data import get_ticker
 
 from screener import screen_markets
 from scoring import (
@@ -59,21 +60,21 @@ class TradingEngine:
         self.trader_name = trader_name
         self.strategy = strategy
         self.risk_mode = risk_mode
-        self.seed_krw = seed_krw
+        self.seed_krw = float(seed_krw) if seed_krw is not None else 1000000.0
         self.credential_name = credential_name
         self.dashboard_api_base = dashboard_api_base
         self.is_paper = is_paper
 
         # 모듈 초기화
         self.score_aggregator = ScoreAggregator()
-        self.position_sizer = PositionSizer(equity=seed_krw)
+        self.position_sizer = PositionSizer(equity=self.seed_krw)
         self.pre_trade_checker = PreTradeChecker()
         self.position_manager = PositionManager(trader_name, dashboard_api_base)
 
         # 자격증명 로드 (복호화 API 사용)
         self.access_key = None
         self.secret_key = None
-        if credential_name:
+        if credential_name and not is_paper:
             self._load_credentials()
 
         self.order_executor = OrderExecutor(
@@ -86,7 +87,23 @@ class TradingEngine:
         # 상태
         self.current_regime = None
         self.open_positions = []
-        self.equity = seed_krw
+        self.equity = self.seed_krw
+
+    def _post_event(self, level: str, kind: str, message: str) -> None:
+        """Dashboard events에 트레이더 액션 기록"""
+        try:
+            httpx.post(
+                f"{self.dashboard_api_base}/api/events",
+                json={
+                    "trader_name": self.trader_name,
+                    "level": level,
+                    "kind": kind,
+                    "message": message,
+                },
+                timeout=3.0,
+            )
+        except Exception:
+            pass
 
     # ─────────────────────────────────────────────────
     # 내부 헬퍼
@@ -170,6 +187,7 @@ class TradingEngine:
     def run_cycle(self):
         """거래 사이클 실행"""
         print(f"[engine] Starting trading cycle for {self.trader_name}")
+        self._post_event("INFO", "cycle", "trading cycle started")
 
         # 1. Regime 조회
         regime_info = self._get_current_regime()
@@ -184,16 +202,26 @@ class TradingEngine:
             f"[engine] regime_weight={regime_weight:.2f}, "
             f"bandit_weight={bandit_weight:.2f}, risk_mult={risk_mult:.2f}"
         )
+        self._post_event(
+            "INFO",
+            "regime",
+            (
+                f"regime={self.current_regime} confidence={regime_info['confidence']:.2f} "
+                f"regime_w={regime_weight:.2f} bandit_w={bandit_weight:.2f} risk_w={risk_mult:.2f}"
+            ),
+        )
 
         # PANIC → 신규 진입 금지, 포지션 50% 축소
         if self.current_regime == 'PANIC':
             print("[engine] PANIC regime — skipping new entries, reducing positions")
+            self._post_event("WARN", "risk", "PANIC detected: reducing positions by 50% and blocking new entries")
             self._manage_positions(reduce_only=True)
             return
 
         # 3. 스크리닝
         candidates = screen_markets(top_n=30)
         print(f"[engine] Screened {len(candidates)} candidates")
+        self._post_event("INFO", "screen", f"screened candidates={len(candidates)}")
 
         # 4. BTC 데이터 로드
         btc_df = self._get_btc_data()
@@ -331,11 +359,21 @@ class TradingEngine:
                     candidate['reason_codes'],
                 )
                 print(f"[engine] Entry: {symbol} @ {result['avg_price']:.0f}, score={total_score:.2f}")
+                self._post_event(
+                    "INFO",
+                    "order",
+                    (
+                        f"ENTRY {symbol} score={total_score:.2f} "
+                        f"price={result['avg_price']:.0f} size={result['filled_qty']:.6f}"
+                    ),
+                )
             else:
                 print(f"[engine] Order failed for {symbol}: {result.get('error')}")
+                self._post_event("ERROR", "order", f"ENTRY FAILED {symbol}: {result.get('error')}")
 
         # 7. 포지션 관리
         self._manage_positions()
+        self._post_event("INFO", "cycle", f"trading cycle finished open_positions={len(self.open_positions)}")
 
     # ─────────────────────────────────────────────────
     # 포지션 관리
@@ -348,7 +386,7 @@ class TradingEngine:
         for pos in self.open_positions:
             symbol = pos['symbol']
             try:
-                ticker = pyupbit.get_ticker(symbol)
+                ticker = get_ticker(symbol)
                 if ticker:
                     current_prices[symbol] = ticker.get('trade_price', 0)
             except Exception as e:
@@ -374,9 +412,15 @@ class TradingEngine:
                         pos['size'] = remaining
                         reduced_positions.append(pos)
                     self._log_signal(symbol, 0, {}, 'EXIT', ['PANIC 50% REDUCE'])
+                    self._post_event(
+                        "WARN",
+                        "order",
+                        f"PANIC REDUCE {symbol} sold={reduce_result.get('filled_qty', 0.0):.6f}",
+                    )
                 else:
                     reduced_positions.append(pos)
                     print(f"[engine] PANIC reduce failed for {symbol}: {reduce_result.get('error')}")
+                    self._post_event("ERROR", "order", f"PANIC REDUCE FAILED {symbol}: {reduce_result.get('error')}")
             self.open_positions = reduced_positions
             return
 
@@ -404,6 +448,10 @@ class TradingEngine:
                 )
                 self._log_signal(pos['symbol'], 0, {}, 'EXIT', [reason])
                 print(f"[engine] Exit: {pos['symbol']} reason={reason} ok={close_result['success']}")
+                if close_result['success']:
+                    self._post_event("INFO", "order", f"EXIT {pos['symbol']} reason={reason}")
+                else:
+                    self._post_event("ERROR", "order", f"EXIT FAILED {pos['symbol']} reason={reason}")
             else:
                 still_open.append(pos)
 

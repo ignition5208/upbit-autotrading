@@ -5,6 +5,7 @@ Screener 모듈
 import pyupbit
 from typing import List, Dict
 from datetime import datetime
+from market_data import get_ticker
 
 
 def get_all_krw_markets() -> List[str]:
@@ -41,11 +42,11 @@ def screen_markets(
     for market in markets:
         try:
             # 24시간 거래대금
-            ticker = pyupbit.get_ticker(market)
+            ticker = get_ticker(market)
             if not ticker:
                 continue
             
-            volume_24h = ticker.get('acc_trade_volume_24h', 0) * ticker.get('trade_price', 0)
+            volume_24h = ticker.get('acc_trade_price_24h', 0)
             if volume_24h < min_24h_volume:
                 continue
             

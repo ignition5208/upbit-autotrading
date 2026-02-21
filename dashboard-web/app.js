@@ -17,6 +17,7 @@ const STRATEGIES = [
 const CHART_COLORS = ['#60a5fa', '#34d399', '#fbbf24', '#a78bfa', '#fb7185', '#38bdf8', '#4ade80', '#f472b6'];
 
 let _refreshTimer = null;
+let _logRefreshTimer = null;
 
 // ===== DOM HELPERS =====
 const qs  = sel => document.querySelector(sel);
@@ -269,18 +270,31 @@ async function renderDashboard() {
     </div>
   `;
 
-  root.append(grid, chartPanel, logPanel);
-  logPanel.querySelector('#log-refresh').onclick = loadDashboard;
+  const orderLogPanel = el('div', 'panel');
+  orderLogPanel.innerHTML = `
+    <div class="panel-header">
+      <span class="panel-title">BUY / SELL LOG</span>
+      <button class="btn btn-sm" id="order-log-refresh">↻ 새로고침</button>
+    </div>
+    <div class="panel-body" style="padding:12px 16px;">
+      <div class="log-list" id="order-log-list">
+        <div class="empty"><div class="empty-icon">🧾</div><div class="empty-text">로딩 중...</div></div>
+      </div>
+    </div>
+  `;
+
+  root.append(grid, chartPanel, logPanel, orderLogPanel);
+  logPanel.querySelector('#log-refresh').onclick = loadActionLog;
+  orderLogPanel.querySelector('#order-log-refresh').onclick = loadOrderLog;
 
   await loadDashboard();
 }
 
 async function loadDashboard() {
   // Fetch all in parallel
-  const [ovRes, rgRes, evRes, trRes] = await Promise.all([
+  const [ovRes, rgRes, trRes] = await Promise.all([
     API.get('/overview'),
     API.get('/regimes/snapshots?limit=1'),
-    API.get('/events?limit=100'),
     API.get('/traders'),
   ]);
 
@@ -330,26 +344,57 @@ async function loadDashboard() {
     }
   }
 
-  // Events log
+  await Promise.all([loadActionLog(), loadOrderLog()]);
+}
+
+async function loadActionLog() {
   const logList = qs('#log-list');
-  if (logList) {
-    const events = evRes.data?.items || [];
-    if (events.length === 0) {
-      logList.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">이벤트 없음</div></div>';
-    } else {
-      logList.innerHTML = '';
-      for (const ev of events) {
-        const row = el('div', 'log-row');
-        row.innerHTML = `
-          <span class="log-ts">${fmtTs(ev.ts)}</span>
-          <span class="log-level ${ev.level || 'INFO'}">${ev.level || 'INFO'}</span>
-          <span class="log-trader">${ev.trader_name || 'system'}</span>
-          <span class="log-msg">${ev.message || ''}</span>
-        `;
-        logList.append(row);
-      }
-    }
+  if (!logList) return;
+  const evRes = await API.get('/events?limit=200');
+  const events = evRes.data?.items || [];
+  if (events.length === 0) {
+    logList.innerHTML = '<div class="empty"><div class="empty-icon">📋</div><div class="empty-text">이벤트 없음</div></div>';
+    return;
   }
+
+  logList.innerHTML = '';
+  for (const ev of events) {
+    const row = el('div', 'log-row');
+    row.innerHTML = `
+      <span class="log-ts">${fmtTs(ev.ts)}</span>
+      <span class="log-level ${ev.level || 'INFO'}">${ev.level || 'INFO'}</span>
+      <span class="log-trader">${ev.trader_name || 'system'}</span>
+      <span class="log-msg">${ev.message || ''}</span>
+    `;
+    logList.append(row);
+  }
+  logList.scrollTop = logList.scrollHeight;
+}
+
+async function loadOrderLog() {
+  const logList = qs('#order-log-list');
+  if (!logList) return;
+  const trRes = await API.get('/trades?limit=200');
+  const items = trRes.data?.items || [];
+  if (items.length === 0) {
+    logList.innerHTML = '<div class="empty"><div class="empty-icon">🧾</div><div class="empty-text">체결 로그 없음</div></div>';
+    return;
+  }
+
+  logList.innerHTML = '';
+  for (const t of items) {
+    const side = String(t.side || '').toUpperCase();
+    const sideClass = side === 'BUY' ? 'INFO' : (side === 'SELL' ? 'WARN' : 'INFO');
+    const row = el('div', 'log-row');
+    row.innerHTML = `
+      <span class="log-ts">${fmtTs(t.ts)}</span>
+      <span class="log-level ${sideClass}">${side || '-'}</span>
+      <span class="log-trader">${t.trader_name || '-'}</span>
+      <span class="log-msg">${t.market || '-'} qty=${Number(t.qty || 0).toFixed(6)} price=${fmtKrw(t.price)}</span>
+    `;
+    logList.append(row);
+  }
+  logList.scrollTop = logList.scrollHeight;
 }
 
 // ===== TRADERS =====
@@ -825,6 +870,7 @@ async function renderConfig() {
 // ===== NAVIGATION =====
 async function setTab(name) {
   if (_refreshTimer) { clearInterval(_refreshTimer); _refreshTimer = null; }
+  if (_logRefreshTimer) { clearInterval(_logRefreshTimer); _logRefreshTimer = null; }
 
   qsa('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   qsa('.view').forEach(v => v.classList.add('hidden'));
@@ -834,6 +880,10 @@ async function setTab(name) {
   if (name === 'dashboard') {
     await renderDashboard();
     _refreshTimer = setInterval(loadDashboard, 10000);
+    _logRefreshTimer = setInterval(() => {
+      loadActionLog();
+      loadOrderLog();
+    }, 2000);
   } else if (name === 'traders') {
     await renderTraders();
   } else if (name === 'strategy') {

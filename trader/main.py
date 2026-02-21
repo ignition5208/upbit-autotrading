@@ -16,16 +16,35 @@ print(f"[trader] Starting {NAME}")
 print(f"[trader] Dashboard API: {BASE}, Interval: {INTERVAL}s, Trading: {TRADING_ENABLED}")
 
 
+def post_event(level: str, kind: str, message: str):
+    try:
+        httpx.post(
+            f"{BASE}/api/events",
+            json={
+                "trader_name": NAME,
+                "level": level,
+                "kind": kind,
+                "message": message,
+            },
+            timeout=5.0,
+        )
+    except Exception:
+        pass
+
+
 def load_trader_config():
     """Trader 설정 로드"""
     try:
         resp = httpx.get(f"{BASE}/api/traders/{NAME}", timeout=5.0)
         if resp.status_code == 200:
             data = resp.json()
+            seed_krw = data.get('seed_krw')
+            if seed_krw is None:
+                seed_krw = 1000000.0
             return {
                 'strategy': data.get('strategy', 'standard'),
                 'risk_mode': data.get('risk_mode', 'STANDARD'),
-                'seed_krw': data.get('seed_krw', 1000000.0),
+                'seed_krw': float(seed_krw),
                 'credential_name': data.get('credential_name'),
                 'run_mode': data.get('run_mode', 'PAPER'),
                 'status': data.get('status', 'STOP'),
@@ -39,6 +58,7 @@ def load_trader_config():
 def main():
     """메인 루프"""
     trading_engine = None
+    post_event("INFO", "lifecycle", f"trader process started interval={INTERVAL}s enabled={TRADING_ENABLED}")
     
     while True:
         try:
@@ -47,6 +67,7 @@ def main():
             
             if not config:
                 print("[trader] Failed to load config, retrying...")
+                post_event("WARN", "config", "failed to load trader config, retrying")
                 time.sleep(10)
                 continue
             
@@ -54,6 +75,7 @@ def main():
             if config['status'] == 'STOP':
                 if trading_engine:
                     print("[trader] Trader stopped, clearing engine")
+                    post_event("INFO", "lifecycle", "status=STOP, trading engine cleared")
                     trading_engine = None
                 time.sleep(10)
                 continue
@@ -71,6 +93,14 @@ def main():
                     is_paper=(config['run_mode'] == 'PAPER'),
                 )
                 print(f"[trader] Trading engine initialized")
+                post_event(
+                    "INFO",
+                    "config",
+                    (
+                        f"engine initialized strategy={config['strategy']} "
+                        f"risk_mode={config['risk_mode']} run_mode={config['run_mode']}"
+                    ),
+                )
             
             # 거래 사이클 실행
             if TRADING_ENABLED:
@@ -83,18 +113,23 @@ def main():
                     "trader_name": NAME,
                     "level": "INFO",
                     "kind": "heartbeat",
-                    "message": datetime.utcnow().isoformat(),
+                    "message": (
+                        f"{datetime.utcnow().isoformat()} "
+                        f"status={config['status']} run_mode={config['run_mode']}"
+                    ),
                 },
                 timeout=5.0,
             )
             
         except KeyboardInterrupt:
             print("[trader] Shutting down...")
+            post_event("INFO", "lifecycle", "trader process shutdown by keyboard interrupt")
             break
         except Exception as e:
             print(f"[trader] Error in main loop: {e}")
             import traceback
             traceback.print_exc()
+            post_event("ERROR", "runtime", f"main loop error: {e}")
         
         time.sleep(INTERVAL)
 

@@ -8,6 +8,7 @@ import pyupbit
 from typing import Dict, Optional
 from datetime import datetime
 import httpx
+from market_data import get_ticker
 
 
 # 블랙리스트 차단 시간 (초)
@@ -99,7 +100,7 @@ class OrderExecutor:
     ) -> Dict:
         """Paper 모드 가상 주문 실행 (슬리피지 시뮬레이션 포함)"""
         try:
-            ticker = pyupbit.get_ticker(symbol)
+            ticker = get_ticker(symbol)
             if not ticker:
                 return self._fail("티커 조회 실패")
 
