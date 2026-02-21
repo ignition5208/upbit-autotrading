@@ -476,11 +476,17 @@ async function renderTraders() {
     const none = el('option'); none.value = ''; none.textContent = '(없음)'; credSel.append(none);
     creds.forEach(c => { const o = el('option'); o.value = c.name; o.textContent = c.name; credSel.append(o); });
 
+    // Form fields
+    const nameLabel = el('label'); nameLabel.textContent = 'NAME';
+    const stratLabel = el('label'); stratLabel.textContent = 'STRATEGY';
+    const seedLabel = el('label'); seedLabel.textContent = 'SEED MONEY (KRW)';
+    const credLabel = el('label'); credLabel.textContent = 'CREDENTIAL';
+
     form.append(
-      Object.assign(el('label'), { textContent: 'NAME' }), nameInput,
-      Object.assign(el('label'), { textContent: 'STRATEGY' }), stratSel,
-      Object.assign(el('label'), { textContent: 'SEED MONEY (KRW)' }), seedInput,
-      Object.assign(el('label'), { textContent: 'CREDENTIAL' }), credSel,
+      nameLabel, nameInput,
+      stratLabel, stratSel,
+      seedLabel, seedInput,
+      credLabel, credSel,
     );
 
     showModal({
@@ -608,10 +614,15 @@ async function renderConfig() {
     const nameIn   = el('input', 'input'); nameIn.placeholder = 'my-upbit-key';
     const accessIn = el('input', 'input'); accessIn.placeholder = 'Upbit Access Key';
     const secretIn = el('input', 'input'); secretIn.type = 'password'; secretIn.placeholder = 'Upbit Secret Key';
+    
+    const nameLabel = el('label'); nameLabel.textContent = 'NAME';
+    const accessLabel = el('label'); accessLabel.textContent = 'ACCESS KEY';
+    const secretLabel = el('label'); secretLabel.textContent = 'SECRET KEY';
+    
     form.append(
-      Object.assign(el('label'), { textContent: 'NAME' }),   nameIn,
-      Object.assign(el('label'), { textContent: 'ACCESS KEY' }), accessIn,
-      Object.assign(el('label'), { textContent: 'SECRET KEY' }), secretIn,
+      nameLabel, nameIn,
+      accessLabel, accessIn,
+      secretLabel, secretIn,
     );
     showModal({
       title: 'CREDENTIAL ADD',

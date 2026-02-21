@@ -9,6 +9,26 @@ from datetime import datetime
 
 BASE = os.getenv("DASHBOARD_API_BASE", "http://dashboard-api:8000")
 INTERVAL = int(os.getenv("TRAINER_INTERVAL_SEC", "3600"))  # 기본 1시간
+WAIT_RETRY_SEC = int(os.getenv("TRAINER_WAIT_RETRY_SEC", "10"))  # API 대기 재시도 간격
+WAIT_MAX_ATTEMPTS = int(os.getenv("TRAINER_WAIT_MAX_ATTEMPTS", "60"))  # 최대 대기 횟수 (~10분)
+
+
+def wait_for_api():
+    """dashboard-api가 준비될 때까지 대기 (Connection refused 방지)"""
+    for attempt in range(1, WAIT_MAX_ATTEMPTS + 1):
+        try:
+            resp = httpx.get(f"{BASE}/", timeout=5.0)
+            if resp.status_code == 200:
+                print("[trainer] Dashboard API is ready.")
+                return
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            print(f"[trainer] API not ready (attempt {attempt}/{WAIT_MAX_ATTEMPTS}): {e}")
+        except Exception as e:
+            print(f"[trainer] API check failed (attempt {attempt}/{WAIT_MAX_ATTEMPTS}): {e}")
+        if attempt < WAIT_MAX_ATTEMPTS:
+            time.sleep(WAIT_RETRY_SEC)
+    print("[trainer] Giving up waiting for API. Exiting.")
+    raise SystemExit(1)
 
 
 def run_training_cycle():
@@ -71,6 +91,8 @@ def run_training_cycle():
         
         print("[trainer] Training cycle completed successfully")
         
+    except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+        print(f"[trainer] API connection error (will retry): {e}")
     except Exception as e:
         print(f"[trainer] Error in training cycle: {e}")
         import traceback
@@ -80,6 +102,8 @@ def run_training_cycle():
 def main():
     print("[trainer] Starting Trainer service")
     print(f"[trainer] API Base: {BASE}, Interval: {INTERVAL}s")
+    
+    wait_for_api()
     
     while True:
         run_training_cycle()
